@@ -1,4 +1,4 @@
-import { useAccessStore } from '@vben/stores';
+import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { message, Modal } from 'antdv-next';
 export interface TableQuery {
@@ -42,4 +42,13 @@ export function confirmAction(
 export function refreshAccess() {
   message.success('已保存，正在更新菜单与按钮权限');
   window.location.reload();
+}
+
+export function isCurrentRole(roleId: number) {
+  return useUserStore().userInfo?.roles?.includes(String(roleId)) ?? false;
+}
+
+export function refreshRoleAccess(roleId: number) {
+  if (isCurrentRole(roleId)) refreshAccess();
+  else message.success('授权已保存');
 }

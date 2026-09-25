@@ -32,7 +32,7 @@ const emit = defineEmits<{ refresh: []; 'update:value': [string] }>();
         v-if="image && !loading"
         :src="image"
         alt="验证码，点击刷新"
-        class="h-9 w-28 object-contain"
+        class="h-9 w-28 rounded bg-white object-contain"
       />
       <span v-else>{{ loading ? '加载中…' : '点击重试' }}</span>
     </button>

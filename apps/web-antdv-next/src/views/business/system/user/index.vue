@@ -221,12 +221,26 @@ async function save() {
         authorityId: values.authorityId,
         authorityIds: values.authorityIds,
       });
-      if (editing.value.authorityId !== values.authorityId) {
-        message.info('默认角色变更需要该用户重新登录');
+      const previousRoles = [
+        ...(editing.value.authorities?.map((role) => role.authorityId) ?? [
+          editing.value.authorityId,
+        ]),
+      ].sort();
+      const nextRoles = [...values.authorityIds].sort();
+      const sessionChanged =
+        editing.value.authorityId !== values.authorityId ||
+        editing.value.enable !== values.enable ||
+        JSON.stringify(previousRoles) !== JSON.stringify(nextRoles);
+      if (sessionChanged) {
+        message.info('状态或角色已变更，该用户需要重新登录');
         if (String(editing.value.ID) === String(userStore.userInfo?.userId)) {
-          await auth.logout(false);
+          await auth.logout(false, false);
           return;
         }
+      } else if (
+        String(editing.value.ID) === String(userStore.userInfo?.userId)
+      ) {
+        await auth.fetchUserInfo();
       }
     } else await createUser(values);
     message.success('保存成功');
@@ -242,6 +256,10 @@ function remove(row: User) {
     try {
       await deleteUser(row.ID);
       message.success('已删除');
+      if (String(row.ID) === String(userStore.userInfo?.userId)) {
+        await auth.logout(false, false);
+        return;
+      }
       await grid.reload();
     } finally {
       rowBusy.value = undefined;
@@ -256,6 +274,8 @@ function resetPassword(row: User) {
       try {
         await resetUserPassword(row.ID);
         message.success('密码已重置为 goZero');
+        if (String(row.ID) === String(userStore.userInfo?.userId))
+          await auth.logout(false, false);
       } finally {
         rowBusy.value = undefined;
       }

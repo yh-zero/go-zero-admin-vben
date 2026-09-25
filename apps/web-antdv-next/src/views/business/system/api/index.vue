@@ -20,6 +20,9 @@ import {
 } from '#/api/business/system/api';
 
 import { confirmAction, methods, usePermission } from '../shared';
+import SyncDrawer from './sync.vue';
+
+const syncDrawer = ref<InstanceType<typeof SyncDrawer>>();
 const can = usePermission('api');
 const open = ref(false);
 const saving = ref(false);
@@ -173,6 +176,7 @@ function removeSelected() {
     <Grid>
       <template #toolbar-tools>
         <Space>
+          <Button v-if="can('sync')" @click="syncDrawer?.show()">同步后端接口</Button>
           <Button
             v-if="can('delete')"
             danger
@@ -208,6 +212,7 @@ function removeSelected() {
         </Space>
       </template>
     </Grid>
+    <SyncDrawer ref="syncDrawer" @saved="grid.query()" />
     <Modal
       v-model:open="open"
       :title="editing ? '编辑 API' : '新增 API'"

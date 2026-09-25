@@ -1,12 +1,13 @@
 <script setup lang="ts">
-import type { Menu } from '#/api/business/system/types';
+import type { Menu, MenuButton } from '#/api/business/system/types';
 
 import { ref } from 'vue';
 
 import { Page } from '@vben/common-ui';
 
-import { Button, message, Modal, Space } from 'antdv-next';
+import { Alert, Button, Input, message, Modal, Space } from 'antdv-next';
 
+import { businessPages } from '#/adapter/business/pages';
 import { useVbenForm, z } from '#/adapter/form';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import {
@@ -23,21 +24,14 @@ import {
   refreshAccess,
   usePermission,
 } from '../shared';
+import { changedMenuButtons, prepareMenuButtons } from './buttons';
 const can = usePermission('menu');
 const open = ref(false);
 const saving = ref(false);
 const editing = ref<Menu>();
 const rows = ref<Menu[]>([]);
-const components = [
-  ['首页', 'views/index.vue'],
-  ['目录', 'views/superAdmin/index.vue'],
-  ['用户管理', 'views/superAdmin/user/user.vue'],
-  ['菜单管理', 'views/superAdmin/menu/menu.vue'],
-  ['角色管理', 'views/superAdmin/authority/authority.vue'],
-  ['API 管理', 'views/superAdmin/api/api.vue'],
-  ['字典管理', 'views/superAdmin/dictionary/dictionary.vue'],
-  ['管理工具', 'views/business/tools/index.vue'],
-].map(([label, value]) => ({ label, value }));
+const buttons = ref<MenuButton[]>([]);
+const components = businessPages.map(({ label, value }) => ({ label, value }));
 const [Form, form] = useVbenForm({
   showDefaultActions: false,
   wrapperClass: 'grid-cols-1',
@@ -143,6 +137,7 @@ const [Grid, grid] = useVbenVxeGrid<Menu>({
 async function showForm(row?: Menu) {
   const detail = row ? (await getMenu(row.ID)).sysBaseMenu : undefined;
   editing.value = detail;
+  buttons.value = (detail?.menuBtn ?? []).map((button) => ({ ...button }));
   open.value = true;
   await form.reset();
   const excluded = new Set(
@@ -190,6 +185,13 @@ async function save() {
   saving.value = true;
   try {
     if (!(await form.validate()).valid) return;
+    let menuBtn: MenuButton[];
+    try {
+      menuBtn = prepareMenuButtons(buttons.value);
+    } catch (error) {
+      message.warning((error as Error).message);
+      return;
+    }
     const values = await form.getValues();
     const data: Menu = {
       ID: editing.value?.ID ?? 0,
@@ -207,11 +209,28 @@ async function save() {
         closeTab: editing.value?.meta.closeTab ?? false,
       },
       parameters: editing.value?.parameters ?? [],
-      menuBtn: editing.value?.menuBtn ?? [],
+      menuBtn,
     };
-    await (editing.value ? updateMenu(data) : createMenu(data));
-    open.value = false;
-    refreshAccess();
+    const changed = changedMenuButtons(editing.value?.menuBtn ?? [], menuBtn);
+    const renamed =
+      editing.value && editing.value.name !== data.name && menuBtn.length > 0;
+    const persist = async () => {
+      saving.value = true;
+      try {
+        await (data.ID ? updateMenu(data) : createMenu(data));
+        open.value = false;
+        refreshAccess();
+      } finally {
+        saving.value = false;
+      }
+    };
+    if (changed.length || renamed) {
+      confirmAction(
+        '确认修改按钮权限定义？',
+        persist,
+        `${renamed ? `菜单名称由 ${editing.value!.name} 改为 ${data.name}，将改变此菜单全部按钮的权限码前缀。` : ''}${changed.length ? `以下按钮被删除或修改标识：${changed.map((button) => `${button.desc} (${button.name})`).join('、')}。` : ''}删除会撤销关联角色的按钮授权；修改标识会改变页面使用的权限码，请同步业务代码。`,
+      );
+    } else await persist();
   } finally {
     saving.value = false;
   }
@@ -270,10 +289,51 @@ function remove(row: Menu) {
       :closable="!saving"
       @ok="save"
     >
-      <Form />
-      <p class="text-muted-foreground text-xs">
-        已有参数和按钮定义会完整保留。
-      </p>
+      <div class="max-h-[65vh] overflow-y-auto pr-2">
+        <Form />
+        <div class="mb-3 flex items-center justify-between border-t pt-4">
+          <span class="font-medium">页面按钮</span>
+          <Button
+            :disabled="saving"
+            @click="buttons.push({ name: '', desc: '' })"
+            >新增按钮</Button
+          >
+        </div>
+        <Alert
+          class="mb-3"
+          type="info"
+          message="按钮名称用于授权展示，权限标识用于页面代码（菜单名称:按钮标识）。按钮授权和接口授权分别维护。"
+        />
+        <div
+          v-for="(button, index) in buttons"
+          :key="button.ID ?? `new-${index}`"
+          class="mb-3 flex items-center gap-2"
+        >
+          <Input
+            v-model:value="button.desc"
+            :disabled="saving"
+            :maxlength="100"
+            placeholder="按钮名称，如新增"
+            :aria-label="`按钮 ${index + 1} 名称`"
+          />
+          <Input
+            v-model:value="button.name"
+            :disabled="saving"
+            :maxlength="64"
+            placeholder="权限标识，如 create"
+            :aria-label="`按钮 ${index + 1} 权限标识`"
+          />
+          <Button danger :disabled="saving" @click="buttons.splice(index, 1)"
+            >删除</Button
+          >
+        </div>
+        <p v-if="!buttons.length" class="text-muted-foreground mb-3 text-sm">
+          尚未定义按钮。
+        </p>
+        <p class="text-muted-foreground text-xs">
+          已有菜单参数和未删除按钮的 ID 会保留。
+        </p>
+      </div>
     </Modal>
   </Page>
 </template>

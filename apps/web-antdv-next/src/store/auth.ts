@@ -14,8 +14,9 @@ import {
   safeRedirect,
   saveSession,
   SESSION_HOME,
+  StaleSessionResponseError,
 } from '#/adapter/business/session';
-import { getUserInfoApi, loginApi } from '#/api';
+import { getUserInfoApi, loginApi, logoutApi } from '#/api';
 import { resetRoutes } from '#/router';
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
@@ -55,19 +56,35 @@ export const useAuthStore = defineStore('auth', () => {
       loginLoading.value = false;
     }
   }
-  async function logout(redirect = true) {
+  async function logout(redirect = true, revoke = true) {
     const destination = safeRedirect(
       router.currentRoute.value.fullPath,
       SESSION_HOME,
     );
-    clearSession();
+    const token = accessStore.accessToken;
+    try {
+      if (revoke && token) await logoutApi(token);
+    } catch {
+      if (accessStore.accessToken === token)
+        notification.warning({
+          title: '已退出当前页面',
+          description: '服务器会话撤销未确认，网络恢复后可重新登录并再次退出。',
+        });
+    } finally {
+      if (accessStore.accessToken === token) clearSession();
+    }
+    // Never clear or navigate away from a newer login while logout was pending.
+    if (accessStore.accessToken) return;
     await router.replace({
       path: LOGIN_PATH,
       query: redirect ? { redirect: encodeURIComponent(destination) } : {},
     });
   }
   async function fetchUserInfo() {
+    const token = accessStore.accessToken;
     const userInfo = await getUserInfoApi();
+    if (accessStore.accessToken !== token)
+      throw new StaleSessionResponseError();
     userStore.setUserInfo(userInfo);
     return userInfo;
   }

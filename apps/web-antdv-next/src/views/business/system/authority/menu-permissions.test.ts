@@ -13,7 +13,7 @@ const mocks = vi.hoisted(() => ({
   getMenuTree: vi.fn(),
   getAuthorityMenus: vi.fn(),
   saveAuthorityMenus: vi.fn(),
-  refreshAccess: vi.fn(),
+  refreshRoleAccess: vi.fn(),
 }));
 vi.mock('#/api/business/system/menu', () => ({
   getMenuTree: mocks.getMenuTree,
@@ -25,7 +25,7 @@ vi.mock('#/api/business/system/authority', () => ({
 vi.mock('../shared', () => ({
   flattenTree: (nodes: Menu[]): Menu[] =>
     nodes.flatMap((node) => [node, ...(node.children ?? [])]),
-  refreshAccess: mocks.refreshAccess,
+  refreshRoleAccess: mocks.refreshRoleAccess,
   confirmAction: (_title: string, action: () => Promise<void>) => action(),
 }));
 vi.mock('antdv-next', async () => {
@@ -121,6 +121,7 @@ describe('role menu authorization loading', () => {
     await Promise.resolve();
     await nextTick();
     expect(mocks.saveAuthorityMenus).toHaveBeenCalledExactlyOnceWith(22, [2]);
+    expect(mocks.refreshRoleAccess).toHaveBeenCalledExactlyOnceWith(22);
   });
   it('cannot save an empty replacement when loading a role fails', async () => {
     mocks.getAuthorityMenus.mockRejectedValue(new Error('permission denied'));

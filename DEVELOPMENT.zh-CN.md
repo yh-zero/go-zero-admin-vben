@@ -1,10 +1,10 @@
 # web-antdv-next 开发文档（接入 go-zero-admin）
 
-后续 38 个接口的实施顺序、前后端修复点与逐项验收见 [剩余接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。最新约定允许前后端配合修改，以简单易懂为原则；本文 P0 记录中的“需要修改后端就停止”仅为历史阶段约束。
+接口实施顺序、前后端修复点与逐项验收见 [接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。当前共 48 个 HTTP 接口，允许前后端配合修改，以简单易懂为原则；本文第 11 节保留 P0 历史计划，其中“需要修改后端就停止”等旧约束已不再适用。
 
 业务开发统一使用 `web-antdv-next`。开发过程中优先新增独立业务文件，通过框架提供的配置和扩展点实现需求，尽量减少对上游源码的修改，降低以后升级 vue-vben-admin 时的冲突。独立文件能减少文本冲突，但框架 API 变化仍需要适配和验证。
 
-本文同时作为 `go-zero-admin` 后端的接入指南。第 5 节按本地后端和前端源码核对，涵盖环境、响应、登录、菜单权限和业务接口。本次先编写第 11 节全部 41 个接口的接入计划，再实现 P0 登录与动态菜单。前端已关闭 Mock，验证码已连接本地真实后端；实际账号登录和菜单授权的联调状态见第 11.4 节。
+本文同时作为 `go-zero-admin` 后端接入指南。第 5 节及第 12 节已按 2026-09-26 的实现更新；第 11 节保留最初 41 个接口的规划过程。前端已关闭 Mock，登录、管理模块、个人中心及 API 同步均已接入真实后端；代码检查与真实 HTTP 验收分别记录，不以页面存在代替验收。
 
 ## 1. 项目定位与保留范围
 
@@ -12,11 +12,11 @@
 
 必须保留 `packages/`、`internal/` 和构建脚本：应用通过 `workspace:*` 引用这些源码，不能只拷贝一个 apps 目录运行。`apps/backend-mock` 源码暂时保留作为参考，但开发环境已禁用，不参与业务登录或菜单。`docs/`、`playground/`、`.changeset/`、上游 `.github/`、Gitpod/tea 配置和重复的上游 README 已清理；需要示例或文档时可查看上游仓库。
 
-本文依据本地源码编写。当前上游基线为 `c5204a69b8374682c59cb35e7a43d474cf125a82`。以后完成框架升级后更新此处，以实际接入的上游提交为准。
+本文依据本地源码编写。最初参考的上游基线为 `c5204a69b8374682c59cb35e7a43d474cf125a82`。以后完成框架升级后更新此处，以实际接入的上游提交为准。
 
 ## 2. 环境和常用命令
 
-在 `vue-vben-admin` 根目录执行，不在单个应用目录单独安装：
+在 `go-zero-admin-vben` 根目录执行，不在单个应用目录单独安装：
 
 ```sh
 pnpm install --frozen-lockfile
@@ -77,8 +77,8 @@ apps/web-antdv-next/src/
 尚未开发的菜单统一显示“尚未接入”，由独立的 `src/views/business/access/pending.vue` 承载，不替换原有页面文件。后续接入一个业务模块时：
 
 1. 在 `src/views/business/<模块>/` 新建页面，并在 `src/api/business/` 新增对应接口文件。
-2. 在 `src/adapter/business/menu.ts` 的 `pageMap` 中，将后端已有的 `component` 值映射到新业务页面；不要为了匹配前端目录修改后端原有菜单数据。
-3. 验证菜单跳转、刷新、权限及接口，再更新本文第 11 节的接入状态。未接入的其他菜单继续显示“尚未接入”。
+2. 在 `src/adapter/business/pages.ts` 登记页面名称、后端 `component` 值和前端组件路径；菜单下拉与动态路由共用这一个注册表，不再修改两份映射。优先保留后端原有组件值。
+3. 验证菜单跳转、刷新、权限及接口，再更新接口接入流程文档的验收记录。本文第 11 节仅保留历史计划；未接入的其他菜单继续显示“尚未接入”。
 
 原有页面与新增业务页面分开维护，升级时重点检查应用入口和菜单适配文件；共享框架包及原有页面尽量保持上游实现。后续接入允许前后端配合改动，具体步骤遵循单独的接口接入流程文档。
 
@@ -93,7 +93,7 @@ defineOptions({ name: 'BusinessSystemUser' });
 </script>
 
 <template>
-  <Page title="用户管理">
+  <Page>
     <div class="bg-card rounded-xl p-4">在这里接入用户列表与管理操作。</div>
   </Page>
 </template>
@@ -109,7 +109,7 @@ defineOptions({ name: 'BusinessSystemUser' });
 
 ### 5.1 后端结构与契约来源
 
-核对日期：2026-09-25。后端 HEAD 为 `3e994f5a3336eaaee94c2a8f0c048f39efb8fc27`，工作区另有 Docker、OSS 初始化与上传等未提交修改；本文以工作区实际源码为准，不能仅凭该 SHA 推断线上行为。
+核对日期：2026-09-26。本文以工作区实际源码为准；接口契约、数据库迁移与生成文档要作为同一版本发布，不能只凭历史提交号推断运行环境行为。
 
 请求链路：浏览器 → Vite/Nginx 代理 → `applet-api:7001` → `applet-rpc:6001` → MySQL。Redis 用于验证码及权限策略同步，etcd 用于 RPC 注册和服务发现。前端只调用 HTTP API，不直连 RPC、数据库或 Redis。API 层通过 JWT 获取当前用户，受保护接口再通过 RPC 执行 Casbin 校验；菜单权限与接口权限分别管理。
 
@@ -144,11 +144,11 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\swagger.ps1
 
 维护脚本时保留 `swagger.ps1` 的 UTF-8 BOM，确保 Windows PowerShell 5.1 正确读取中文。生成的 Swagger JSON 仍使用 UTF-8 无 BOM。
 
-- 生成范围：从 `application/applet/api/desc/applet.api` 及其导入文件读取接口，当前共 41 个；不需要启动 API、RPC、数据库或 Redis。
+- 生成范围：从 `application/applet/api/desc/applet.api` 及其导入文件读取接口，当前共 48 个；不需要启动 API、RPC、数据库或 Redis。
 - 生成方式：脚本调用官方 `goctl api swagger`，只在临时副本中添加文档元信息，再补充本项目的响应包装、JWT 和上传参数；不会重写 `.api`、handler、logic、types 或 go.mod。
 - 产物格式：Swagger 2.0 JSON。可导入 Apifox，也可使用下面的独立 Docker Swagger UI；后端没有新增 `/swagger` 页面。
 - 默认服务地址：`http://localhost:7001`。需要更换时执行 `.\test\sh\swagger.ps1 -ApiHost 'localhost:其他端口'`，参数填写不带协议和路径的主机名及端口；也可以在接口工具中配置实际服务地址。
-- 鉴权：登录、验证码接口公开，其余当前 39 个接口使用 `Authorization: Bearer <accessToken>`；Swagger UI 的 Authorize 中填写完整的 `Bearer ...`。
+- 鉴权：登录、验证码接口公开，其余 46 个接口使用 `Authorization: Bearer <accessToken>`；其中 `/me`、`/changePassword`、`/logout` 仅需有效会话，其余业务接口还需 Casbin 权限。Swagger UI 的 Authorize 中填写完整的 `Bearer ...`。
 - 响应：已补充 `code/message/result/returnData/success/timestamp`。业务错误和 JWT 失效可能使用 HTTP 200；先检查业务码。权限拒绝和鉴权服务异常分别为 HTTP 403/500。
 - 上传：`multipart/form-data`，文件字段 `file_img`。实际调试仍需可用的后端及 OSS 配置。
 
@@ -156,7 +156,7 @@ goctl 目前对本项目同时含 json/form 标签的字段会产生重复参数
 
 文档生成不会修复后端业务问题：`getMenuAuthority`、`getBaseMenuById` 的 GET 必填字段仍只有 json 标签，浏览器无法发送对应 body；文档保留现状并注明限制。部分列表接口含可选 GET body，可省略该 body，使用已列出的 query 参数。字典项详情的 `form:"id":"id"` 标签不规范，脚本依据当前 Go 反射行为补充 `id` 查询参数。注册成功当前返回 `result: null`，文档也按此注明。具体缺口见 5.8。
 
-以后新增或修改接口时：修改 `.api` 和业务实现 → 重新生成 Swagger → 检查方法、路径、参数和响应 → 提交 `.api`、实现及 JSON 产物。不要手改生成的 JSON；统一响应、鉴权方式或上传字段变化时，在 `test/sh/swagger.ps1` 同步调整文档适配。升级 goctl 后检查这些适配是否仍需要，避免与新版生成器重复处理。
+以后新增或修改接口时：修改 `.api` 和业务实现 → 重新生成 Swagger → 检查方法、路径、参数和响应 → 重新构建 RPC/API → 一起提交源码与 JSON。RPC 的 API 同步读取编译时嵌入的 Swagger，必须先生成后构建；只刷新 Swagger UI 不会更新同步预览。不要手改生成 JSON，统一响应或鉴权变化应调整 `swagger.ps1`；升级 goctl 后核对适配是否仍需要。
 
 #### 本地开发依赖与 Swagger
 
@@ -243,16 +243,17 @@ defaultResponseInterceptor({
 
 | 能力 | 后端现状 | 对接方式 |
 | --- | --- | --- |
-| 图片验证码 | `GET /v1/sys/randomImage` → `{ captchaImg }` | 将返回的 Data URL 直接作为图片 src，输入框提交字符串 |
-| 账号密码登录 | `POST /v1/sys/login` | 请求 `{ username, password, captcha }`，返回 `{ accessToken, accessExpire, userInfo }` |
-| 当前用户信息 | 没有按 JWT 查询当前用户的 HTTP 接口 | 首次使用登录返回的 userInfo；刷新恢复方案见下文 |
+| 图片验证码 | `GET /v1/sys/randomImage` → `{ captchaId, captchaImg }` | Data URL 作为图片 src，提交当前 captchaId 与输入字符 |
+| 账号密码登录 | `POST /v1/sys/login` | 请求 `{ username, password, captchaId, captcha }`，返回 `{ accessToken, accessExpire, userInfo }` |
+| 当前用户信息 | `GET /v1/sys/me` | 按 JWT 读取本人最新资料，供刷新恢复和个人中心使用 |
 | 刷新令牌 | 没有 refreshToken HTTP 接口 | 保持 `enableRefreshToken: false`，过期重新登录 |
-| 退出登录 | 没有服务端退出 HTTP 接口 | 清理本地状态；不要继续调用 `/auth/logout` |
+| 退出登录 | `POST /v1/sys/logout` | 撤销该账号所有设备的旧会话，随后清理本地状态 |
+| 自助改密码 | `PUT /v1/sys/changePassword` | 提交 oldPassword/newPassword，成功后重新登录 |
 | 注册 | `POST /v1/sys/register` 是 JWT + Casbin 保护的管理员新增用户接口 | 放在用户管理页，不接到匿名注册入口 |
 
 登录页需要移除演示账号选择与自动填充密码，用图片验证码替换当前返回布尔值的滑块验证码。建议新建 `views/business/auth/login.vue`，复用 Vben 登录容器，仅调整 `router/routes/core.ts` 中 Login 的组件引用并登记该定制；保留根布局和其他核心路由结构。不支持的短信、扫码、找回密码和匿名注册入口先关闭。
 
-后端验证码有现状差异：只有 `Config.Isdev == true` 且请求头 `Isdev` 不为 `"1"` 时才校验，Docker 模板却设置 `Isdev: false`。前端不要通过发送绕过头解决联调问题；上线前由后端明确并修正校验开关。验证码按 `RemoteAddr` 提取的 IP 存 Redis，没有 `captchaId`，同一代理下并发取图可能互相覆盖；请求图片和提交登录应走同一代理。验证码时效与反向代理场景也需后端核验，不能按源码注释直接假定为两分钟。
+验证码始终校验，不使用开发开关或请求头绕过。Redis 按随机 captchaId 隔离保存，120 秒有效，提交校验时原子读取并消费；多个页面取图不会互相覆盖。失败后重新取图，不能重复使用旧图片。
 
 建议的登录过程：取得图片 → 提交登录 → 保存 accessToken 和过期时间 → 转换 userInfo → 获取当前菜单并生成按钮码 → 动态注册路由 → 跳到实际可访问首页。`accessExpire` 是绝对过期时间，单位为秒，不是有效时长；前端时间判断使用 `accessExpire * 1000`，最终是否有效仍以后端鉴权为准。
 
@@ -271,7 +272,9 @@ defaultResponseInterceptor({
 
 `authorities` 表示关联角色，不能直接当作当前 JWT 同时拥有的全部角色权限。当前没有切换角色并重新签发 JWT 的 HTTP 接口；不要只修改前端 authorityId 来“切换角色”。`defaultRouter` 可能为 `dashboard` 或 `404`，不能直接赋给要求路径的 homePath；菜单转换后选择可访问首页，无菜单时展示无权限状态。
 
-**页面刷新必须单独设计。** Vben 的用户 store 当前不持久化；路由守卫在用户信息为空时会调用 `fetchUserInfo()`。推荐后端新增按 JWT 查询本人资料的接口，再接回该流程。后端尚未补齐时，可在应用层保存最小的会话资料用于恢复展示，并重新向服务器请求当前菜单校验会话；资料缺失、过期或鉴权失败就清理状态并重新登录。缓存不作为权限依据，不保存密码或验证码，不用管理员用户列表接口代替“当前用户接口”。退出时同时清理该缓存、token、用户、菜单和按钮权限。仅清理浏览器 token 不会让已签发 JWT 在服务器立即失效。
+**刷新会话以服务端为准。** 路由初始化调用 `/me` 更新用户资料，再加载当前菜单；本地最小展示缓存不作为权限依据，不保存密码和验证码。JWT 默认 2 小时有效，每次请求检查用户状态、角色和数据库 session_version。改密、冻结、管理员重置密码、删除或角色变更都会使旧会话失效；`logout` 撤销账号所有设备会话。前端清理 token、用户、路由、按钮和展示缓存，并对旧请求晚到、旧 401 及重复退出做隔离，防止影响新登录。
+
+真实个人中心是固定登录路由 `/account`，名称 `BusinessAccount`，不可被后台菜单覆盖。现有演示 Profile 页面仍保留，不充当真实个人资料接口。
 
 ### 5.5 后端菜单、按钮与接口权限
 
@@ -292,13 +295,13 @@ defaultResponseInterceptor({
 
 现有 Vben 会把 `views/business/system/user/index.vue` 规范化为 `/business/system/user/index.vue`，匹配 `src/views/business/system/user/index.vue`。后端初始化数据中的旧组件路径可能不存在，应在应用适配器维护允许的映射；未知组件应明确记录并显示未接入页面，不能指向任意文件。首级菜单由现有根布局承载，避免每一级重复套 `BasicLayout`。按旧菜单 name 查到首页后，还要累积父路径或用已注册路由解析，不能把相对子路径直接当首页。
 
-后端没有 `/auth/codes`。可由当前菜单树的 `btns` 生成例如 `菜单name:按钮name` 的权限码，并存入 `accessStore`；页面按钮使用同一约定。`menuBtn` 是按钮定义，不等于当前角色已授权按钮，不可据此全部放行。按钮授权维护接口并未完整暴露，缺失的按钮数据要由后端确认，不能在前端默认赋予全部权限。
+后端没有 `/auth/codes`。当前菜单树的 `btns` 生成 `菜单name:按钮name` 权限码并存入 `accessStore`；`menuBtn` 只是定义，不可据此全部放行。菜单编辑器支持按钮定义增删改并保留旧 ID；删除按钮会清理关联角色授权，修改标识需同步业务代码。目标角色按钮通过 `getAuthorityButtons` / `updateAuthorityButtons` 维护；菜单、按钮、API 三类授权分别保存，分组搜索、计数和差异预览只影响当前抽屉。
 
 菜单授权控制“看见什么”，Casbin 控制“请求是否允许”。新增业务接口时，后端必须注册正确的 **路径 + HTTP 方法**，并为角色配置对应策略。代理前缀 `/api` 不进入 Casbin 路径。例如用户列表策略应是 `GET /v1/sys/getUserList`，不是 `/api/v1/sys/getUserList`。能看到菜单仍可能返回 403，此时应检查角色的接口策略。
 
 ### 5.6 业务模块接口与字段约定
 
-除登录和验证码外，当前注册的接口都需要 JWT 与 Casbin 权限。下表的方法与路径按源码核对；存在已知限制的接口见 5.8，开发时继续核对实际请求类型。
+除登录和验证码外，所有接口均需有效 JWT；`me/changePassword/logout` 不需要单独分配 Casbin 权限，其余业务接口需授权。下表按源码核对，开发时继续核对实际请求类型。
 
 | 模块 | HTTP 接口 |
 | --- | --- |
@@ -307,16 +310,18 @@ defaultResponseInterceptor({
 | 菜单维护 | `POST /v1/sys/menu/addBaseMenu`；`PUT /v1/sys/menu/updateBaseMenu`；`DELETE /v1/sys/menu/deleteBaseMenu` |
 | 角色 | `GET /v1/sys/authority/getAuthorityList`；`POST /v1/sys/authority/createAuthority`、`addAuthorityMenu`；`PUT /v1/sys/authority/updateAuthority`；`DELETE /v1/sys/authority/deleteAuthority` |
 | API 清单 | `/v1/sys/api/` 下：GET `getApiList`、`getAllApiList`；POST `createApi`；PUT `updateApi`；DELETE `deleteApi`、`deleteApisByIds` |
+| API 同步 | `GET /v1/sys/api/previewSync`；`POST /v1/sys/api/applySync`，提交预览 version 与所选 keys |
+| 按钮授权 | `GET /v1/sys/menu/getAuthorityButtons`；`PUT /v1/sys/menu/updateAuthorityButtons` |
 | 接口策略 | `/v1/sys/casbin/` 下：GET `getPathByAuthorityId`；PUT `updateCasbinData`、`updateCasbinDataByApiIds` |
 | 字典 | `/v1/sys/dictionary/` 下：GET `getSysDictionaryList`、`getSysDictionaryDetails`；POST `createSysDictionary`；PUT `updateSysDictionary`；DELETE `deleteSysDictionary` |
 | 字典项 | `/v1/sys/dictionary/` 下：GET `getSysDictionaryInfoList`、`getSysDictionaryInfoListDetailsById`；POST `createSysDictionaryInfo`；PUT `updateSysDictionaryInfo`；DELETE `deleteSysDictionaryInfo` |
 | 通用能力 | `POST /v1/sys/base/uploadFileImg`；`POST /v1/sys/base/sendEmailCode` |
 
-用户、API、字典项分页用查询参数 `pageNo`、`pageSize`，默认 1、10；响应为 `{ list, total, page, pageSize }`，请求的 `pageNo` 与响应的 `page` 名称不同。`getMenuList` 实际返回完整菜单树，total 为根节点数，并未实现分页；角色列表仅对根角色分页，附带子角色树。字典列表只有 list，全部 API 列表字段是 apiList。数组可能为 null，适配到表格前统一处理。用户列表虽有公共 keyword 定义，当前逻辑没有把它传给 RPC，不要把传入 keyword 当作搜索已生效。
+用户、API、字典项分页用 query `pageNo/pageSize`，默认 1/10；响应 `{ list, total, page, pageSize }`。菜单是完整树，角色只对根节点分页，字典列表为全量 list，全部 API 列表字段为 apiList。数组为 null 时在适配层处理。用户 keyword 已传递至 RPC 并按 userName/nickName 搜索，搜索后回到第一页。
 
 用户管理特别注意字段大小写：登录为 `username/password`；管理员新增用户为 `userName/passWord/nickName/authorityId/authorityIds`；更新资料使用大写 `ID`；删除和重置密码使用 `userId`。`enable` 用数字 1/2 表示正常/冻结；字典 status 用数字 1/2，不能直接发送布尔值。Go int64 在当前 JSON 中是数值，如果实际 ID 可能超过 JS 安全整数范围，应先与后端统一字符串方案，不自行改变提交类型。
 
-新增用户当前成功时 `result` 实际为 null，与类型声明中的用户对象不同；应按业务成功码处理后重新查询列表，不依赖返回新用户 ID。更新用户逻辑会跳过空字符串和数字 0，不能假定提交空字符串就会清空手机号、邮箱等字段；要支持清空需先明确后端更新契约。角色对象的主键是 authorityId，不是通用 ID。
+新增用户成功时 `result=null`，声明与 Swagger 已同步；按成功码重新查列表，不依赖返回 ID。更新用户采用“未传不更新，明确空值允许清空”，空电话/邮箱可以保存；Go 指针与 RPC optional 字段保留是否提供的信息。角色主键是 authorityId，合法 parentId=0 可保存；状态等字段仍需符合取值约束。
 
 字典详情 `GET /v1/sys/dictionary/getSysDictionaryDetails` 已有实现，查询参数 id/type 至少提供一个，status 默认 1。解包后直接得到字典对象，其中 sysDictionaryInfoList 是按 sort 排序的启用字典项；不要额外读取不存在的 data 或把禁用项丢失认作前端筛选错误。
 
@@ -356,7 +361,7 @@ export function deleteUser(userId: number) {
 
 这里 DELETE 的第二个参数是请求配置，JSON 请求体写在 `data` 中。不要把所有 DELETE 都改成 query 参数；具体以该接口类型标签为准。密码重置是管理员操作，使用后端配置的默认密码，不要在前端硬编码仓库示例密码。
 
-图片上传使用 multipart 字段 **`file_img`**，返回 `result.fileImgUrl`。Vben 通用上传器默认入参是 file，不能直接照搬；在业务上传适配层构造正确的 FormData 并让浏览器生成 boundary，保留鉴权头和统一错误处理。后端需要有效的 OSS 配置，否则返回 `300002`。源码的 `ParseMultipartForm(10 << 20)` 是内存阈值，不是可靠的文件大小限制；与后端/网关约定实际大小和文件类型再设置前端校验。
+图片上传使用 multipart 字段 **`file_img`**，返回 `result.fileImgUrl`。让浏览器生成 boundary，保留鉴权头及统一错误处理。后端按文件内容检查 PNG/JPEG/GIF/WebP，单文件最大 10 MB，整个请求限制 11 MB；真实上传需有效 OSS 配置。前端校验不能替代服务端校验。
 
 ### 5.7 建议的改造位置和顺序
 
@@ -367,7 +372,7 @@ export function deleteUser(userId: number) {
 | 应用 `vite.config.ts`、本地环境文件 | 关闭 Mock，代理到后端 |
 | `src/api/request.ts` | `200/result` 解包、业务失效码、错误消息 |
 | `src/api/core/auth.ts`、`user.ts`、`menu.ts` | 保留稳定的应用接口入口，委托业务适配实现，取消不存在的 Mock URL |
-| `src/store/auth.ts` | 消费登录 userInfo，按顺序加载菜单与按钮，处理本地退出和刷新恢复 |
+| `src/store/auth.ts` | 消费登录 userInfo，读取 /me，加载菜单与按钮，服务端退出及旧请求隔离 |
 | `src/preferences.ts` | 混合菜单模式、关闭刷新令牌、选择可访问首页 |
 | `src/router/routes/core.ts` 的登录组件引用 | 指向新增的业务登录页，保留根布局 |
 
@@ -375,13 +380,13 @@ export function deleteUser(userId: number) {
 
 实施顺序：环境与响应适配 → 图片验证码和登录 → 用户恢复/退出/失效处理 → 后端菜单、首页和按钮 → 用户管理 → 角色/菜单/API 权限 → 字典与上传。每完成一步验证再继续，避免同时改完所有页面后无法定位问题。
 
-### 5.8 联调前必须确认的后端缺口
+### 5.8 已修复约定与剩余边界
 
-- 当前用户 HTTP 接口、服务端注销、令牌刷新、角色切换接口尚未提供；前端不能把这些能力当作已有功能。是否补齐由业务需求决定，本文中推荐新增的接口不等于现有契约。
-- `menu/getMenuAuthority` 的逻辑取 JWT 当前角色，忽略请求中的 authorityId；用它回显其他角色菜单会得到错误结果，角色管理接入前需后端修正。
-- `GetMenuAuthorityRequest.authorityId` 和 `GetBaseMenuByIdRequest.id` 在 GET 请求类型中仅标注 json，字典项详情 id 标签也不规范。需核对并修正为对应查询参数契约，重新生成类型后联调；不要让浏览器发送 GET body 绕过。
-- 用户 keyword 搜索未生效、菜单列表未分页、注册返回 null、空值更新会被忽略，前端按 5.6 的现状开发；需要更完整能力时先补后端契约，不以 OpenAPI 或 handler 存在作为完成依据。
-- 当前登录查询没有检查用户 enable，“冻结”字段不等于已经阻止登录。验证码开关、IP 绑定、时效和冻结行为需要后端完善后验收；前端隐藏入口不能补足服务端限制。邮件验证码是受保护接口，且依赖服务端邮件配置，不等于已经支持匿名邮箱注册或找回密码。
+- GET 参数均使用 query，目标角色授权按传入 authorityId 查询；用户搜索、空值更新、冻结和会话撤销已实现，回归仍需实际 HTTP 验证。
+- 菜单使用全量树，不提供假的服务端分页；注册 result=null 是明确契约。
+- API 同步只对勾选项新增资源或更新分组/说明，保留已有权限；新资源不自动授权，失效资源不自动删除。预览版本过期或失败后必须重新选择。
+- 后端保护最后一个有效内置管理员，用户名及业务唯一约束兼容软删除；迁移遇重复数据会停止，不自动删除用户数据。
+- 暂无 refreshToken、独立切换角色、找回密码和操作日志。邮箱只有受保护的发送接口，不代表已支持匿名注册、邮箱绑定或找回密码；OSS/SMTP 成功流程需外部配置后验收。
 
 ### 5.9 验收清单
 
@@ -390,7 +395,7 @@ export function deleteUser(userId: number) {
 - 登录后用户信息、首页、菜单正常；刷新页面、直接打开业务深层链接、退出再换账号不残留旧权限。
 - HTTP 200 下的 `100003` 会结束会话，HTTP 403 不会造成登录循环；多个请求同时失效只处理一次。
 - 不同角色的菜单、按钮与实际 API 访问结果一致；没有菜单或未知组件时有明确提示。
-- 用户列表页码、空列表、更新/删除请求字段正确；验证新增用户返回 null 和空值更新限制。字典详情正确使用 id/type 与启用状态，不把尚未实现的用户搜索当作已完成。
+- 用户列表页码、搜索、空列表、更新/删除字段正确；验证新增返回 null、空值清空和合法零值。字典详情正确使用 id/type 与状态。
 - 角色授权回显目标正确，保存范围正确；上传字段为 file_img，OSS 未配置时显示可理解的错误。
 - 执行 `pnpm check:type:antdv-next`、`pnpm lint`、`pnpm build`；生产构建指向自己的后端。静态检查通过不代替真实角色和接口联调。
 
@@ -428,13 +433,13 @@ export function deleteUser(userId: number) {
 | 应用 src/api/core/{auth,user,menu}.ts、src/api/request.ts | 保留稳定入口，适配 200/result，取消不存在的接口 | 业务100003/HTTP401失效；403和网络错误不清理会话 |
 | 应用 src/store/auth.ts、src/router/{guard,access,index}.ts | 登录缓存、固定 mixed 合并模式、路由生成及清理 | 刷新重新获取菜单、切换用户不残留路由、网络失败可重试 |
 | 应用 src/router/routes/core.ts、src/preferences.ts | 新业务登录页、菜单失败页、混合菜单、禁用不存在的认证方式 | Root布局保持兼容；默认首页由授权菜单决定 |
-| 应用 src/layouts/basic.vue | 使用真实登录组件，清除演示通知与假资料、隐藏未接入个人中心 | 布局插槽与用户下拉菜单兼容；不恢复演示信息 |
+| 应用 src/layouts/basic.vue、src/router/routes/modules/account.ts | 接入真实个人中心 /account，保留演示 Profile 页面 | 用户下拉、登录保护、当前资料与改密退出流程 |
 
-以上 P0 定制尚未提交，后续提交时补记提交号。以后新增定制时，补充具体文件、修改原因、对应提交和验证方式。上游已经提供同等能力时，优先移除本地补丁，避免长期重复维护。
+以后新增定制时补充具体文件、修改原因、对应提交和验证方式，提交状态以实际 Git 记录为准。上游已提供同等能力时优先移除本地补丁，避免长期重复维护。
 
 ## 8. 后续升级时的基本约定
 
-保留上游 Git 历史，将自己的业务仓库与官方上游远端区分清楚。整理时 origin 仍指向官方仓库，推送前需确认目标为自己的仓库。
+将自己的业务仓库与官方上游远端区分清楚，推送前用 `git remote -v` 核对目标，不能假定 origin 始终是上游或自己的仓库。保留上游历史或明确记录引入的上游版本；没有共同历史时先确认升级策略，不强行覆盖业务目录。
 
 升级在独立分支进行：先保存当前业务版本，审阅目标版本变更，再合并固定的上游标签或提交。不要下载新版覆盖整个目录，也不要用全量更新依赖代替框架升级。合入业务主分支时保留上游合并历史，避免 squash 掉合并关系后，下一次重复处理变更。
 
@@ -457,14 +462,14 @@ export function deleteUser(userId: number) {
 
 虽然 .changeset 已删除，internal/node-utils 使用的 @changesets/git 仍保留，它是开发工具的依赖，与是否使用版本发布流程是两回事。
 
-上传前在 vue-vben-admin 根目录检查 git status 和 git remote -v。origin 应指向自己的仓库，upstream 可指向官方仓库。首次迁移且 origin 仍指向官方、upstream 尚不存在时，可以先将 origin 重命名为 upstream，再添加自己的 origin。不要删除 .git 后重新初始化；.git 本身不会作为普通文件上传。
+上传前在 go-zero-admin-vben 根目录检查 git status 和 git remote -v。origin 应指向自己的仓库，upstream 可指向官方仓库。首次迁移且 origin 仍指向官方、upstream 尚不存在时，可以先将 origin 重命名为 upstream，再添加自己的 origin。不要删除 .git 后重新初始化；.git 本身不会作为普通文件上传。
 
 提交源码、锁文件、构建配置、开发文档和 LICENSE。node_modules、dist、缓存、日志以及 .env.*.local 已由 .gitignore 排除，无需为了上传删除本地依赖；提交前检查暂存文件，确保没有账号、令牌和私有环境配置。建立自己的 GitHub 仓库、提交和推送属于后续操作，本次仅整理本地文件。
 
 
-## 11. 全部接口接入计划（2026-09-25，先规划后实施）
+## 11. 原始接口接入计划与 P0 历史记录（2026-09-25）
 
-范围：以当前 41 个 HTTP 接口为清单。本次只实施 P0 登录与动态菜单，不开发其他管理页面，不修改后端源码、数据库记录、Casbin 策略或菜单数据。若 P0 必须修改后端才能继续，停止实施并报告接口、现象、原因和建议；下列未来阶段的已知后端缺口仅记录，不在本次修复。
+本节保留当时以 41 个接口、仅实施 P0 为范围的历史计划和验证记录。P1～P5 后续已开发，当前已扩展到 48 个接口；旧限制与“尚未实施”等表述只描述当时状态，当前开发按第 5、12 节及接口接入流程执行。
 
 ### 11.1 实施顺序和验收
 
@@ -479,7 +484,7 @@ export function deleteUser(userId: number) {
 
 所有阶段共用 src/api/business 与 src/adapter/business，业务页面放 views/business，尽量不改 packages/ 和上游演示页面。详尽字段契约和已知问题见第5节。
 
-### 11.2 P0 设计
+### 11.2 P0 历史设计
 
 1. 开发代理 /api → http://127.0.0.1:7001，保持完整 /v1/sys/... 路径；图片与登录走同一代理。验证码由用户填写，或在用户明确授权后协助填写；不发送 Isdev 绕过头。
 2. 登录请求 username/password/captcha；读取 accessToken、accessExpire（绝对Unix秒）、userInfo，角色只使用当前 authorityId。
@@ -489,9 +494,9 @@ export function deleteUser(userId: number) {
 6. 登录失败刷新验证码；网络/500菜单失败可重试，不误判为令牌失效；会话缺失、过期或后端100003/401才要求重新登录。切换用户后不能残留旧路由。
 7. 验证：类型检查、构建、菜单适配和会话/错误处理测试；真实后端验证码与代理检查；用户手动登录后检查菜单、刷新、深层路由和退出。未验证项如实标记。
 
-### 11.3 全部接口清单
+### 11.3 原始 41 个接口清单（历史）
 
-下表是实施计划，不代表已经接入。P0 的最终状态在本节末尾更新，其余阶段均待实施。
+下表为原始计划，不包含后来新增的 2 个按钮、3 个会话和 2 个 API 同步接口。当前完整接口以生成的 48 接口 Swagger 和接口接入流程为准。
 
 | 阶段 | 方法 | 路径 | 用途 |
 | --- | --- | --- | --- |
@@ -537,14 +542,14 @@ export function deleteUser(userId: number) {
 | P1 | PUT | `/v1/sys/resetUserPassword` | 重置用户密码 默认密码：goZero |
 | P1 | PUT | `/v1/sys/updateUserInfo` | 修改用户信息 |
 
-### 11.4 本次实施状态
+### 11.4 P0 阶段历史验证
 
 计划已在修改应用代码前写入。P0 前端实现已完成，P1～P5 尚未实施。没有修改后端源码、配置、菜单数据或 Casbin 策略。
 
 业务文件入口：
 - 登录页：src/views/business/auth/login.vue；验证码：src/components/business/image-captcha.vue。
 - 会话与错误分类：src/adapter/business/session.ts；菜单映射：src/adapter/business/menu.ts。
-- 后续新增实际业务页面后，在 menu.ts 的组件白名单中将后端已有 component 值映射到新页面，通常无需改后端菜单记录。
+- P0 时由 menu.ts 维护组件映射；当前已统一到 pages.ts，通常无需改后端原有菜单记录。
 - 当前 views/index.vue 映射原有 /dashboard/workspace/index.vue 工作台，保留其演示数据；其余没有实现的业务页面显示待接入提示。btns 映射为“菜单name:按钮name”，且只取当前 authorityId 的授权。
 
 验证记录：
@@ -553,7 +558,7 @@ export function deleteUser(userId: number) {
 - 类型检查、定向 ESLint 和生产构建通过，验证码绑定修复后的最终类型/构建复核也通过。构建仍有上游依赖 BigInt 与旧浏览器目标的提示，本次未扩大范围修改共享构建配置。
 - 2026-09-25 已使用用户提供的账号、经明确授权填写验证码完成真实登录：原有菜单与后端业务菜单同时展示，角色管理显示“尚未接入”，原有工作台可访问，刷新 /dashboard/workspace 后会话与合并菜单正常恢复。退出后重新登录、令牌过期和其他角色仍待端到端验收；没有绕过验证码、伪造令牌或修改后端。
 
-开发启动：先在 go-zero-admin 根目录启动开发 Docker 依赖，再由 VS Code 启动后端 API/RPC；在 vue-vben-admin 根目录运行 pnpm dev。浏览器使用终端输出地址，通常为 http://localhost:5999。修改代理或环境文件后重启前端。验证码按后端 IP 缓存，多个标签同时刷新验证码可能互相覆盖，应在当前登录页刷新后立即填写。
+当前开发启动：先在后端运行数据库 Init/Migrate，再由 VS Code 启动 RPC/API；前端运行 pnpm dev，默认 http://localhost:5999。修改代理或环境文件后重启前端。验证码已按 captchaId 隔离，多个标签不会互相覆盖，使用当前图片的 ID 与字符。
 
 若 getMenu 返回403或后端业务错误，记录接口与实际账号并定位原因。后续阶段已允许按接口接入流程配合修改后端策略、数据或源码，修复后重新验收；不能通过关闭鉴权绕过问题。
 
@@ -562,10 +567,49 @@ export function deleteUser(userId: number) {
 按开发要求保留原有菜单及页面，同时追加后端授权业务菜单：
 
 - 原有菜单来自 src/router/routes/modules/，保持原文件与演示数据。
-- 后端菜单来自 getMenu；用户、角色、API、字典等尚未实现的页面继续显示“尚未接入”。
+- 后端菜单来自 getMenu；当前用户、角色、API、字典等已映射真实业务页，其余未注册组件显示“尚未接入”。
 - 后端 views/index.vue 复用原有工作台；业务首页与原有工作台菜单可能同时存在，这是保留两套菜单入口的结果。
 - src/router/access.ts 调用框架现有 mixed 生成逻辑；src/adapter/business/menu-conflicts.ts 在合并前检查路由名称及完整路径，冲突时提示菜单加载失败，禁止静默覆盖。处理冲突优先在前端适配层进行，不直接改后端数据。
 - 原有页面的统计、个人资料设置等仍为上游示例，不能作为业务功能验收结果。新增需要业务授权的页面，通过后端菜单组件映射接入，不能仅添加到本地示例菜单获得访问入口。
 - 本次继续使用原有真实登录和验证码流程。本地调试账号密码按项目所有者要求记录于第 2 节，方便开发者和 AI 调试查阅。
 
 验证结果：本次菜单合并通过类型检查、定向 ESLint、生产构建和 14 项测试（含 3 项路由合并冲突测试）。原有 dashboard、demos 页面和 routes/modules 文件没有修改；本次没有修改后端。浏览器已验证真实登录、合并菜单、原有工作台访问及刷新恢复。
+
+## 12. 当前开发流程与优化结果（2026-09-26）
+
+本节描述当前实现，后续不再沿用第 11 节的 P0 限制或旧会话设计。完整 API 契约在后端生成的 48 接口 Swagger；实施细节和回归记录见 [接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。
+
+### 12.1 每次更新后的启动顺序
+
+1. 在后端根目录先运行数据库 `Status`，首次使用 `Init`，已有环境有待执行迁移时使用 `Migrate`；Windows PowerShell 5.1 即可运行。
+2. `.api` 有改动时按项目模板生成 API 代码与 Swagger；`.proto` 有改动时生成 RPC。RPC 的 API 同步使用编译时嵌入的 Swagger，必须先生成再构建。
+3. 由 VS Code 启动/重启 RPC 和 API；开发 Docker 只提供 MySQL、Redis、etcd、Swagger，不运行应用进程。
+4. 在前端根目录运行 `pnpm dev`，走真实验证码登录，检查 `/account`、业务菜单和原有示例页面。会话迁移或账号权限变化后使用新的登录会话。
+
+后端数据库常用命令：
+
+```powershell
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\db.ps1 -Action Init
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\db.ps1 -Action Status
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\db.ps1 -Action Backup
+powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\db.ps1 -Action Migrate
+```
+
+Linux 使用 `sh test/sh/db.sh init|status|backup|migrate`（每次选择一个动作）。部署命令增加 `deploy` 参数，PowerShell 增加 `-Environment Deploy`，详见 [后端 README](../go-zero-admin/README.md)。开发和部署配置、数据卷分开。
+
+当前六份迁移由 `schema_migrations` 记录文件名和校验值；已执行文件跳过，内容被改过则停止，应新增文件继续变更。执行待应用迁移前自动备份至后端 `bin/db-backups/`，失败即停止。MySQL DDL 可能隐式提交，不承诺整批回滚；查明原因后再执行。`20260926_00_method_dictionary.sql` 只修复符合旧种子特征的 POST 字典值，用户改过的记录不会被覆盖。异常遗留的 `/tmp/gozero-db-migrate.lock` 只在确认没有其他迁移进程后清理。
+
+### 12.2 业务开发约定
+
+- **页面注册：**新增页面只在 `adapter/business/pages.ts` 登记一次，菜单编辑下拉和路由映射共同使用。未知组件显示“尚未接入”，原有演示页面保持原状。
+- **菜单按钮：**菜单编辑维护按钮 `name/desc`，已有项保留 ID，未编辑的 `parameters` 保留；删除按钮会撤销关联授权，重命名会改变权限码，保存前提示影响。
+- **角色权限：**菜单、API、按钮三类独立保存。API/按钮按模块或菜单分组，搜索与组内全选保留其他组的选择，展示新增/撤销数量；清空和撤销须确认，未登记规则不得默默丢弃。改其他角色只刷新局部数据，影响当前角色才刷新当前权限。
+- **API 同步：**先预览，再选择新增/变更项并应用。版本变化后重新预览，不自动给角色增加新接口权限，不自动删除不在当前授权清单中的资源；这类资源也可能对应登录等无需 Casbin 授权的有效路由。已有资源更新保留 ID 和关联策略。
+- **会话与个人中心：**`/account` 从 `GET /v1/sys/me` 读取真实资料；`PUT /v1/sys/changePassword` 改密后退出；`POST /v1/sys/logout` 注销该账号所有设备。JWT 默认 2 小时，改密、冻结、重置、删除和角色集合变更通过 `session_version` 撤销旧会话；前端隔离旧请求的迟到响应。尚无 refreshToken、在线切换 JWT 角色或找回密码接口。
+- **管理员保护：**后端保护最后一个可用管理员的账号、角色和关键授权，不用真实唯一管理员做破坏性测试；业务唯一约束由接口校验及数据库共同保证。
+
+### 12.3 当前检查结果
+
+2026-09-26：前端应用类型检查通过，全部单元测试 **93 个文件、638 项通过**，生产构建通过。业务 CRUD 与授权 HTTP 回归通过；会话的本人资料、改密、冻结、默认角色、关联角色、重置、注销、删除共 8 个场景通过，其中两次人工验证码误输入的场景已针对性重测；API 同步 3 项 HTTP 回归通过。
+
+OSS 上传和 SMTP 实际送达仍缺外部配置，成功流程明确跳过，不计为通过。操作日志未在本轮实现。更详细的复测记录与可复用脚本见接口接入流程文档；上游 Vben 开发时固定输出的表单 slot 迁移提示不是当前业务组件绑定错误。

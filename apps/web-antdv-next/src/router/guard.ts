@@ -11,6 +11,7 @@ import {
   readSession,
   safeRedirect,
   SESSION_HOME,
+  StaleSessionResponseError,
 } from '#/adapter/business/session';
 import { accessRoutes, coreRouteNames } from '#/router/routes';
 import { useAuthStore } from '#/store';
@@ -78,13 +79,15 @@ function setupAccessGuard(router: Router) {
     }
     if (!accessStore.accessToken) return login();
     if (accessStore.isAccessChecked) return true;
+    const requestToken = accessStore.accessToken;
     try {
-      const userInfo = userStore.userInfo || (await authStore.fetchUserInfo());
+      const userInfo = await authStore.fetchUserInfo();
       const { accessibleMenus, accessibleRoutes } = await generateAccess({
         roles: userInfo.roles ?? [],
         router,
         routes: accessRoutes,
       });
+      if (accessStore.accessToken !== requestToken) return false;
       accessStore.setAccessMenus(accessibleMenus);
       accessStore.setAccessRoutes(accessibleRoutes);
       accessStore.setIsAccessChecked(true);
@@ -98,6 +101,11 @@ function setupAccessGuard(router: Router) {
         replace: true,
       };
     } catch (error) {
+      if (
+        error instanceof StaleSessionResponseError ||
+        (accessStore.accessToken && accessStore.accessToken !== requestToken)
+      )
+        return false;
       if (
         error instanceof MissingSessionError ||
         isAuthenticationError(error) ||

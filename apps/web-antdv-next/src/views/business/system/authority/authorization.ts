@@ -1,5 +1,40 @@
 import type { ApiResource, Menu, Policy } from '#/api/business/system/types';
 
+export interface PermissionOption {
+  group: string;
+  label: string;
+  value: number;
+}
+
+export function permissionChanges<T extends number | string>(
+  before: T[],
+  after: T[],
+) {
+  const original = new Set(before);
+  const selected = new Set(after);
+  return {
+    added: [...selected].filter((value) => !original.has(value)),
+    removed: [...original].filter((value) => !selected.has(value)),
+    total: selected.size,
+  };
+}
+
+// Only replace visible options in this group; selections in other groups or
+// hidden by a search remain intact.
+export function replaceGroupSelection(
+  selected: number[],
+  group: number[],
+  checked: number[],
+) {
+  const available = new Set(group);
+  return [
+    ...new Set([
+      ...selected.filter((id) => !available.has(id)),
+      ...checked.filter((id) => available.has(id)),
+    ]),
+  ];
+}
+
 // Keep homepage choices consistent with the dynamic route adapter: a hidden
 // ancestor hides its descendants, and directories open their first visible leaf.
 export function homeMenuOptions(

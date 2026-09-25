@@ -1,6 +1,21 @@
 import { useAccessStore } from '@vben/stores';
 
-import { readSession } from '#/adapter/business/session';
+import {
+  refreshSessionUser,
+  StaleSessionResponseError,
+} from '#/adapter/business/session';
+import { getCurrentUser } from '#/api/business/account';
+
 export async function getUserInfoApi() {
-  return readSession(useAccessStore().accessToken).user;
+  const access = useAccessStore();
+  const token = access.accessToken;
+  try {
+    const user = await getCurrentUser();
+    if (!token || access.accessToken !== token)
+      throw new StaleSessionResponseError();
+    return refreshSessionUser(user, token);
+  } catch (error) {
+    if (access.accessToken !== token) throw new StaleSessionResponseError();
+    throw error;
+  }
 }

@@ -11,7 +11,10 @@ import { useAccessStore } from '@vben/stores';
 
 import { message } from 'antdv-next';
 
-import { isAuthenticationError } from '#/adapter/business/session';
+import {
+  isAuthenticationError,
+  isCurrentSessionRequest,
+} from '#/adapter/business/session';
 import { useAuthStore } from '#/store';
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
 function createRequestClient(baseURL: string, options?: RequestClientOptions) {
@@ -33,9 +36,12 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   );
   client.addResponseInterceptor({
     rejected: async (error) => {
-      if (isAuthenticationError(error) && useAccessStore().accessToken) {
+      if (
+        isAuthenticationError(error) &&
+        isCurrentSessionRequest(error, useAccessStore().accessToken)
+      ) {
         message.error('登录已失效，请重新登录');
-        await useAuthStore().logout();
+        await useAuthStore().logout(true, false);
       }
       throw error;
     },

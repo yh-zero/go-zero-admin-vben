@@ -1,6 +1,9 @@
 export interface BackendUser {
   ID: number;
-  authority?: { defaultRouter?: string };
+  authority?: { authorityName?: string; defaultRouter?: string };
+  email?: string;
+  phone?: string;
+  enable?: number;
   authorityId: number;
   headerImg?: string;
   nickName?: string;

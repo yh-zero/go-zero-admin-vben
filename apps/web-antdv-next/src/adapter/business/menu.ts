@@ -2,20 +2,9 @@ import type { RouteRecordStringComponent } from '@vben/types';
 
 import type { BackendMenu } from '../../api/business/session';
 
+import { resolveBusinessPage } from './pages';
 import { SESSION_HOME } from './session';
 
-const pageMap: Record<string, string> = {
-  'views/index.vue': '/dashboard/workspace/index.vue',
-  'views/business/home/index.vue': '/business/home/index.vue',
-  'views/superAdmin/user/user.vue': '/business/system/user/index.vue',
-  'views/superAdmin/menu/menu.vue': '/business/system/menu/index.vue',
-  'views/superAdmin/authority/authority.vue':
-    '/business/system/authority/index.vue',
-  'views/superAdmin/api/api.vue': '/business/system/api/index.vue',
-  'views/superAdmin/dictionary/dictionary.vue':
-    '/business/system/dictionary/index.vue',
-  'views/business/tools/index.vue': '/business/tools/index.vue',
-};
 const icons: Record<string, string> = {
   AntDesignOutlined: 'lucide:house',
   BugOutlined: 'lucide:settings',
@@ -35,6 +24,7 @@ function resolveMenuIcon(icon = '') {
 const reservedNames = new Set([
   'AccessError',
   'Authentication',
+  'BusinessAccount',
   'BusinessSessionHome',
   'FallbackNotFound',
   'Login',
@@ -79,6 +69,8 @@ export function adaptMenus(
         if (
           !path ||
           path.startsWith('/auth') ||
+          path === '/account' ||
+          path.startsWith('/account/') ||
           path.startsWith('/_session') ||
           paths.has(path)
         )
@@ -89,7 +81,7 @@ export function adaptMenus(
         const children = visit(node.children, path, hidden);
         const component = children.length
           ? '/business/layout/route-view.vue'
-          : pageMap[node.component || ''] || '/business/access/pending.vue';
+          : resolveBusinessPage(node.component || '');
         const route: RouteRecordStringComponent = {
           component,
           meta: {

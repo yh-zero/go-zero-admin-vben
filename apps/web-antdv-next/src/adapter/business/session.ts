@@ -1,6 +1,6 @@
 import type { UserInfo } from '@vben/types';
 
-import type { LoginResult } from '../../api/business/session';
+import type { BackendUser, LoginResult } from '../../api/business/session';
 
 export const SESSION_HOME = '/_session/home';
 const SESSION_KEY = 'go-zero-admin:session:v1';
@@ -12,6 +12,7 @@ interface Session {
 }
 
 export class MissingSessionError extends Error {}
+export class StaleSessionResponseError extends Error {}
 
 export function saveSession(result: LoginResult): UserInfo {
   if (
@@ -24,16 +25,7 @@ export function saveSession(result: LoginResult): UserInfo {
     throw new Error('登录响应缺少有效会话信息');
   }
   const backend = result.userInfo;
-  const user: UserInfo = {
-    avatar: backend.headerImg || '',
-    desc: '',
-    homePath: SESSION_HOME,
-    realName: backend.nickName || backend.userName,
-    roles: [String(backend.authorityId)],
-    token: result.accessToken,
-    userId: String(backend.ID),
-    username: backend.userName,
-  };
+  const user = mapBackendUser(backend, result.accessToken);
   const session: Session = {
     defaultRouter: backend.authority?.defaultRouter || '',
     expiresAt: result.accessExpire,
@@ -70,7 +62,11 @@ export function clearSessionCache() {
 
 // Refresh display-only homepage metadata after editing the current role.
 // A role switch still requires login because the JWT carries authorityId.
-export function updateSessionHome(token: null | string, roleId: number, home: string) {
+export function updateSessionHome(
+  token: null | string,
+  roleId: number,
+  home: string,
+) {
   const session = readSession(token);
   if (session.user.roles?.includes(String(roleId))) {
     session.defaultRouter = home;
@@ -99,4 +95,45 @@ export function safeRedirect(value: unknown, fallback: string): string {
   } catch {
     return fallback;
   }
+}
+
+export function mapBackendUser(backend: BackendUser, token: string): UserInfo {
+  return {
+    avatar: backend.headerImg || '',
+    desc: '',
+    homePath: SESSION_HOME,
+    realName: backend.nickName || backend.userName,
+    roles: [String(backend.authorityId)],
+    token,
+    userId: String(backend.ID),
+    username: backend.userName,
+  };
+}
+
+export function refreshSessionUser(
+  backend: BackendUser,
+  token: string,
+): UserInfo {
+  const session = readSession(token);
+  session.user = mapBackendUser(backend, token);
+  session.defaultRouter = backend.authority?.defaultRouter || '';
+  localStorage.setItem(SESSION_KEY, JSON.stringify(session));
+  return session.user;
+}
+
+// An old request may finish after the user has signed in again.
+export function isCurrentSessionRequest(
+  error: unknown,
+  token: null | string,
+): boolean {
+  if (!token) return false;
+  const request = error as {
+    config?: { headers?: Record<string, unknown> };
+    response?: { config?: { headers?: Record<string, unknown> } };
+  };
+  const headers =
+    request?.config?.headers || request?.response?.config?.headers;
+  return (
+    (headers?.Authorization || headers?.authorization) === `Bearer ${token}`
+  );
 }

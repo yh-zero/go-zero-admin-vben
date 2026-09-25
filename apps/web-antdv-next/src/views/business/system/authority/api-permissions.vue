@@ -6,7 +6,6 @@ import { computed, ref } from 'vue';
 import {
   Alert,
   Button,
-  CheckboxGroup,
   Drawer,
   message,
   Select,
@@ -22,8 +21,14 @@ import {
   savePolicyApiIds,
 } from '#/api/business/system/casbin';
 
-import { confirmAction } from '../shared';
-import { parsePolicies, policyKey, splitPolicies } from './authorization';
+import { confirmAction, refreshRoleAccess } from '../shared';
+import {
+  parsePolicies,
+  permissionChanges,
+  policyKey,
+  splitPolicies,
+} from './authorization';
+import PermissionOptions from './permission-options.vue';
 const open = ref(false);
 const loading = ref(false);
 const loaded = ref(false);
@@ -34,14 +39,35 @@ const title = ref('');
 const mode = ref('ids');
 const apis = ref<ApiResource[]>([]);
 const selected = ref<number[]>([]);
+const originalIds = ref<number[]>([]);
+const originalPolicies = ref<string[]>([]);
 const unknown = ref<Policy[]>([]);
 const text = ref('');
 const options = computed(() =>
   apis.value.map((api) => ({
-    label: `${api.apiGroup} · ${api.method} ${api.path} · ${api.description}`,
+    group: api.apiGroup || '未分组',
+    label: `${api.method} ${api.path} · ${api.description}`,
     value: api.ID,
   })),
 );
+const pathChanges = computed(() => {
+  try {
+    return {
+      ...permissionChanges(
+        originalPolicies.value,
+        parsePolicies(text.value).map(policyKey),
+      ),
+      error: '',
+    };
+  } catch (error) {
+    return {
+      added: [],
+      removed: [],
+      total: 0,
+      error: (error as Error).message,
+    };
+  }
+});
 async function show(id: number, name: string) {
   const version = ++loadVersion;
   roleId.value = id;
@@ -51,6 +77,8 @@ async function show(id: number, name: string) {
   loaded.value = false;
   apis.value = [];
   selected.value = [];
+  originalIds.value = [];
+  originalPolicies.value = [];
   unknown.value = [];
   text.value = '';
   mode.value = 'ids';
@@ -61,6 +89,8 @@ async function show(id: number, name: string) {
     const policies = rules.list ?? [];
     const split = splitPolicies(policies, apis.value);
     selected.value = split.ids;
+    originalIds.value = [...split.ids];
+    originalPolicies.value = policies.map(policyKey);
     unknown.value = split.unknown;
     text.value = policies.map(policyKey).join('\n');
     if (unknown.value.length) mode.value = 'paths';
@@ -98,8 +128,8 @@ async function persist(policies?: Policy[]) {
     if (mode.value === 'ids')
       await savePolicyApiIds(roleId.value, selected.value);
     else await savePolicies(roleId.value, policies ?? []);
-    message.success('接口授权已保存，后端立即生效');
     open.value = false;
+    refreshRoleAccess(roleId.value);
   } finally {
     saving.value = false;
   }
@@ -119,11 +149,18 @@ function save() {
       return;
     }
   }
-  if ((mode.value === 'ids' ? selected.value.length : policies?.length) === 0)
+  const changes =
+    mode.value === 'ids'
+      ? permissionChanges(originalIds.value, selected.value)
+      : permissionChanges(
+          originalPolicies.value,
+          (policies ?? []).map(policyKey),
+        );
+  if (changes.total === 0 || changes.removed.length)
     confirmAction(
-      '清空此角色的全部接口权限？',
+      changes.total === 0 ? '清空此角色的全部接口权限？' : '确认修改接口授权？',
       () => persist(policies),
-      '该角色可能无法加载菜单或使用业务功能。',
+      `新增 ${changes.added.length} 项，撤销 ${changes.removed.length} 项，保存后共 ${changes.total} 项。被撤销的接口将无法访问，可能影响菜单加载或业务功能；菜单与按钮授权不会随之修改。`,
     );
   else void persist(policies);
 }
@@ -153,17 +190,18 @@ defineExpose({ show });
         type="warning"
         show-icon
         class="mb-4"
-        :message="`有 ${unknown.length} 条未登记规则，已保留在路径模式；按 API ID 保存暂不可用。`"
+        :message="`有 ${unknown.length} 条未登记规则，请在路径模式中维护；删除对应行表示撤销。切换到 API 清单时仍有未登记规则则禁止保存，避免丢失权限。`"
       />
       <template v-if="mode === 'ids'">
         <p class="mb-3 text-sm">
           一次保存仅替换接口权限，不修改菜单与按钮授权。
         </p>
-        <CheckboxGroup
-          v-model:value="selected"
+        <PermissionOptions
+          :key="`${roleId}-${loadVersion}`"
+          v-model="selected"
           :options="options"
+          :original="originalIds"
           :disabled="saving || loading"
-          class="flex flex-col gap-3"
         />
       </template>
       <template v-else>
@@ -171,6 +209,31 @@ defineExpose({ show });
           每行一条，例如 GET
           /v1/sys/menu/getMenu。已有未登记规则会保留，删除行代表明确撤销。
         </p>
+        <p v-if="!pathChanges.error" class="mb-3 text-sm">
+          已选 {{ pathChanges.total }} 条 · 新增
+          {{ pathChanges.added.length }} 条 · 撤销
+          {{ pathChanges.removed.length }} 条
+        </p>
+        <Alert
+          v-else
+          type="warning"
+          class="mb-3"
+          :message="pathChanges.error"
+        />
+        <details
+          v-if="pathChanges.added.length || pathChanges.removed.length"
+          class="mb-3 rounded border p-3 text-sm"
+        >
+          <summary class="cursor-pointer">查看本次接口权限变更</summary>
+          <ul class="mt-2 space-y-1 break-all">
+            <li v-for="rule in pathChanges.added" :key="`add-${rule}`">
+              新增：{{ rule }}
+            </li>
+            <li v-for="rule in pathChanges.removed" :key="`remove-${rule}`">
+              撤销：{{ rule }}
+            </li>
+          </ul>
+        </details>
         <TextArea
           v-model:value="text"
           :rows="22"

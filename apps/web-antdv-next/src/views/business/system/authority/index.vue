@@ -25,7 +25,8 @@ import { getAuthorityMenus } from '#/api/business/system/menu';
 import {
   confirmAction,
   flattenTree,
-  refreshAccess,
+  isCurrentRole,
+  refreshRoleAccess,
   usePermission,
 } from '../shared';
 import ApiPermissions from './api-permissions.vue';
@@ -164,13 +165,13 @@ async function save() {
     await (editing.value ? updateAuthority(data) : createAuthority(data));
     message.success('保存成功');
     open.value = false;
-    if (editing.value) {
+    if (editing.value && isCurrentRole(data.authorityId)) {
       updateSessionHome(
         accessStore.accessToken,
         data.authorityId,
         data.defaultRouter,
       );
-      refreshAccess();
+      refreshRoleAccess(data.authorityId);
     } else await grid.query();
   } finally {
     saving.value = false;
@@ -254,7 +255,7 @@ function remove(row: Authority) {
     >
       <Form />
     </Modal>
-    <MenuPermissions ref="menus" />
+    <MenuPermissions ref="menus" @saved="grid.query()" />
     <ButtonPermissions ref="buttons" />
     <ApiPermissions ref="apis" />
   </Page>

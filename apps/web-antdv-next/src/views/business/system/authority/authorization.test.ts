@@ -6,9 +6,30 @@ import {
   homeMenuOptions,
   includeMenuParents,
   parsePolicies,
+  permissionChanges,
+  replaceGroupSelection,
   splitPolicies,
 } from './authorization';
 describe('authorization request conversion', () => {
+  it('keeps selections outside a filtered group intact', () => {
+    expect(replaceGroupSelection([1, 2, 8], [1, 3], [3, 9])).toEqual([2, 8, 3]);
+    expect(replaceGroupSelection([1, 2, 8], [1, 3], [])).toEqual([2, 8]);
+    expect(replaceGroupSelection([2, 8], [1, 3], [1, 3, 3])).toEqual([
+      2, 8, 1, 3,
+    ]);
+  });
+  it('previews unique additions and revocations without treating reordering as a change', () => {
+    expect(permissionChanges([1, 2, 3], [3, 1, 4, 4])).toEqual({
+      added: [4],
+      removed: [2],
+      total: 3,
+    });
+    expect(permissionChanges(['GET /a', 'PUT /b'], [])).toEqual({
+      added: [],
+      removed: ['GET /a', 'PUT /b'],
+      total: 0,
+    });
+  });
   it('only offers visible home routes including directories with a visible destination', () => {
     const menus = [
       {

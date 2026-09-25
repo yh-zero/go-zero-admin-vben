@@ -1,7 +1,9 @@
 <script setup lang="ts">
+import type { PermissionOption } from './authorization';
+
 import { ref } from 'vue';
 
-import { Button, CheckboxGroup, Drawer, Space, Spin } from 'antdv-next';
+import { Button, Drawer, Space, Spin } from 'antdv-next';
 
 import {
   getAuthorityButtons,
@@ -9,7 +11,9 @@ import {
   saveAuthorityButtons,
 } from '#/api/business/system/menu';
 
-import { confirmAction, flattenTree, refreshAccess } from '../shared';
+import { confirmAction, flattenTree, refreshRoleAccess } from '../shared';
+import { permissionChanges } from './authorization';
+import PermissionOptions from './permission-options.vue';
 const open = ref(false);
 const loading = ref(false);
 const loaded = ref(false);
@@ -18,7 +22,8 @@ const saving = ref(false);
 const roleId = ref(0);
 const title = ref('');
 const selected = ref<number[]>([]);
-const options = ref<Array<{ label: string; value: number }>>([]);
+const original = ref<number[]>([]);
+const options = ref<PermissionOption[]>([]);
 async function show(id: number, name: string) {
   const version = ++loadVersion;
   roleId.value = id;
@@ -27,6 +32,7 @@ async function show(id: number, name: string) {
   loading.value = true;
   loaded.value = false;
   selected.value = [];
+  original.value = [];
   options.value = [];
   try {
     const [assigned, menus] = await Promise.all([
@@ -35,11 +41,13 @@ async function show(id: number, name: string) {
     ]);
     if (version !== loadVersion) return;
     selected.value = assigned.menuBtnIds ?? [];
+    original.value = [...selected.value];
     options.value = flattenTree(menus.list ?? []).flatMap((menu) =>
       (menu.menuBtn ?? [])
         .filter((button) => button.ID)
         .map((button) => ({
-          label: `${menu.meta.title} / ${button.desc || button.name} (${menu.name}:${button.name})`,
+          group: `${menu.meta.title} (${menu.name})`,
+          label: `${button.desc || button.name} (${menu.name}:${button.name})`,
           value: button.ID!,
         })),
     );
@@ -54,14 +62,20 @@ async function persist() {
   try {
     await saveAuthorityButtons(roleId.value, selected.value);
     open.value = false;
-    refreshAccess();
+    refreshRoleAccess(roleId.value);
   } finally {
     saving.value = false;
   }
 }
 function save() {
   if (!loaded.value || loading.value || saving.value) return;
-  if (!selected.value.length) confirmAction('清空此角色的按钮权限？', persist);
+  const changes = permissionChanges(original.value, selected.value);
+  if (changes.removed.length)
+    confirmAction(
+      !selected.value.length ? '清空此角色的按钮权限？' : '确认修改按钮授权？',
+      persist,
+      `新增 ${changes.added.length} 项，撤销 ${changes.removed.length} 项，保存后共 ${changes.total} 项。撤销后该角色无法使用对应按钮，接口权限不会随之修改。`,
+    );
   else void persist();
 }
 defineExpose({ show });
@@ -78,11 +92,12 @@ defineExpose({ show });
       <p class="mb-4">
         只展示此角色已授权菜单下的按钮。接口访问权限需单独保存。
       </p>
-      <CheckboxGroup
-        v-model:value="selected"
+      <PermissionOptions
+        :key="`${roleId}-${loadVersion}`"
+        v-model="selected"
         :options="options"
+        :original="original"
         :disabled="saving || loading"
-        class="flex flex-col gap-3"
       />
       <p v-if="!loading && !options.length">没有可授权按钮，请先分配菜单。</p>
     </Spin>
