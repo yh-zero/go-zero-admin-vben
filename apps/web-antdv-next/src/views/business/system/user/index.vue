@@ -7,10 +7,11 @@ import type { CreateUser } from '#/api/business/system/user';
 import { markRaw, ref } from 'vue';
 
 import { Page } from '@vben/common-ui';
-import { useUserStore } from '@vben/stores';
+import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { Button, message, Modal, Space, Tag } from 'antdv-next';
 
+import { isValidPassword } from '#/adapter/business/password';
 import { useVbenForm, z } from '#/adapter/form';
 import { useVbenVxeGrid } from '#/adapter/vxe-table';
 import { getAllAuthorities } from '#/api/business/system/authority';
@@ -24,6 +25,7 @@ import {
 import ImageUpload from '#/components/business/image-upload.vue';
 import { useAuthStore } from '#/store';
 
+import MembershipModal from '../organization/membership-modal.vue';
 import {
   confirmAction,
   flattenTree,
@@ -33,12 +35,15 @@ import {
 const can = usePermission('user');
 const canTools = usePermission('businessTools');
 const userStore = useUserStore();
+const access = useAccessStore();
 const auth = useAuthStore();
 const open = ref(false);
 const saving = ref(false);
 const imageUploading = ref(false);
 const editing = ref<User>();
 const rowBusy = ref<number>();
+const membership = ref<InstanceType<typeof MembershipModal>>();
+let formLoadVersion = 0;
 const [Form, form] = useVbenForm<CreateUser>({
   showDefaultActions: false,
   wrapperClass: 'grid-cols-1',
@@ -57,7 +62,7 @@ const [Form, form] = useVbenForm<CreateUser>({
         triggerFields: ['userName'],
         resolve: () => ({ show: !editing.value }),
       },
-      rules: z.string().min(6, '密码至少 6 位').optional(),
+      rules: z.string().refine(isValidPassword, '密码须为8至72字节').optional(),
     },
     {
       fieldName: 'nickName',
@@ -136,7 +141,7 @@ const [Grid, grid] = useVbenVxeGrid<User>({
       },
       {
         title: '操作',
-        width: 320,
+        width: 400,
         fixed: 'right',
         slots: { default: 'actions' },
       },
@@ -159,13 +164,18 @@ const [Grid, grid] = useVbenVxeGrid<User>({
   },
 });
 async function showForm(row?: User) {
+  if (saving.value || imageUploading.value) return;
+  const version = ++formLoadVersion;
+  const token = access.accessToken;
   const authorities = flattenTree(await getAllAuthorities()).map((role) => ({
     label: role.authorityName,
     value: role.authorityId,
   }));
+  if (version !== formLoadVersion || access.accessToken !== token) return;
   editing.value = row;
   open.value = true;
   await form.reset();
+  if (version !== formLoadVersion || access.accessToken !== token) return;
   form.updateSchema([
     { fieldName: 'userName', componentProps: { disabled: !!row } },
     {
@@ -199,20 +209,23 @@ async function showForm(row?: User) {
 async function save() {
   if (saving.value || imageUploading.value) return;
   saving.value = true;
+  const token = access.accessToken;
+  const target = editing.value;
   try {
     if (!(await form.validate()).valid) return;
     const values = await form.getValues();
+    if (access.accessToken !== token) return;
     if (!values.authorityIds.includes(values.authorityId)) {
       message.warning('默认角色必须属于关联角色');
       return;
     }
-    if (!editing.value && !values.passWord) {
+    if (!target && !values.passWord) {
       message.warning('请输入新用户密码');
       return;
     }
-    if (editing.value) {
+    if (target) {
       await updateUser({
-        ID: editing.value.ID,
+        ID: target.ID,
         nickName: values.nickName,
         phone: values.phone ?? '',
         email: values.email ?? '',
@@ -221,28 +234,28 @@ async function save() {
         authorityId: values.authorityId,
         authorityIds: values.authorityIds,
       });
+      if (access.accessToken !== token) return;
       const previousRoles = [
-        ...(editing.value.authorities?.map((role) => role.authorityId) ?? [
-          editing.value.authorityId,
+        ...(target.authorities?.map((role) => role.authorityId) ?? [
+          target.authorityId,
         ]),
       ].sort();
       const nextRoles = [...values.authorityIds].sort();
       const sessionChanged =
-        editing.value.authorityId !== values.authorityId ||
-        editing.value.enable !== values.enable ||
+        target.authorityId !== values.authorityId ||
+        target.enable !== values.enable ||
         JSON.stringify(previousRoles) !== JSON.stringify(nextRoles);
       if (sessionChanged) {
         message.info('状态或角色已变更，该用户需要重新登录');
-        if (String(editing.value.ID) === String(userStore.userInfo?.userId)) {
+        if (String(target.ID) === String(userStore.userInfo?.userId)) {
           await auth.logout(false, false);
           return;
         }
-      } else if (
-        String(editing.value.ID) === String(userStore.userInfo?.userId)
-      ) {
+      } else if (String(target.ID) === String(userStore.userInfo?.userId)) {
         await auth.fetchUserInfo();
       }
     } else await createUser(values);
+    if (access.accessToken !== token) return;
     message.success('保存成功');
     open.value = false;
     await grid.query();
@@ -251,10 +264,14 @@ async function save() {
   }
 }
 function remove(row: User) {
+  if (rowBusy.value !== undefined) return;
+  const token = access.accessToken;
   confirmAction(`删除用户 ${row.userName}？`, async () => {
+    if (rowBusy.value !== undefined || access.accessToken !== token) return;
     rowBusy.value = row.ID;
     try {
       await deleteUser(row.ID);
+      if (access.accessToken !== token) return;
       message.success('已删除');
       if (String(row.ID) === String(userStore.userInfo?.userId)) {
         await auth.logout(false, false);
@@ -267,36 +284,44 @@ function remove(row: User) {
   });
 }
 function resetPassword(row: User) {
+  if (rowBusy.value !== undefined) return;
+  const token = access.accessToken;
   confirmAction(
     `重置 ${row.userName} 的密码？`,
     async () => {
+      if (rowBusy.value !== undefined || access.accessToken !== token) return;
       rowBusy.value = row.ID;
       try {
         await resetUserPassword(row.ID);
-        message.success('密码已重置为 goZero');
+        if (access.accessToken !== token) return;
+        message.success('密码已重置为服务端配置的默认密码，该用户需要重新登录');
         if (String(row.ID) === String(userStore.userInfo?.userId))
           await auth.logout(false, false);
       } finally {
         rowBusy.value = undefined;
       }
     },
-    '默认密码：goZero',
+    '将使用服务端配置的默认密码，并立即撤销该用户的旧登录会话。',
   );
 }
 function toggle(row: User) {
+  if (rowBusy.value !== undefined) return;
+  const token = access.accessToken;
   confirmAction(
     `${row.enable === 1 ? '冻结' : '启用'}用户 ${row.userName}？`,
     async () => {
+      if (rowBusy.value !== undefined || access.accessToken !== token) return;
       rowBusy.value = row.ID;
       try {
         await updateUser({ ID: row.ID, enable: row.enable === 1 ? 2 : 1 });
+        if (access.accessToken !== token) return;
         message.success('状态已更新');
         await grid.query();
       } finally {
         rowBusy.value = undefined;
       }
     },
-    '冻结后禁止新登录，已签发令牌到期失效。',
+    '状态变更会立即撤销该用户的旧登录会话；冻结后禁止新登录。',
   );
 }
 </script>
@@ -330,11 +355,20 @@ function toggle(row: User) {
             size="small"
             :disabled="
               rowBusy === row.ID ||
-              String(row.ID) === String(userStore.userInfo?.userId)
+                String(row.ID) === String(userStore.userInfo?.userId)
             "
             @click="toggle(row)"
           >
             {{ row.enable === 1 ? '冻结' : '启用' }}
+          </Button>
+          <Button
+            v-if="can('membership')"
+            type="link"
+            size="small"
+            :disabled="rowBusy === row.ID || saving"
+            @click="membership?.show(row.ID, row.userName)"
+          >
+            部门岗位
           </Button>
           <Button
             v-if="can('resetPassword')"
@@ -352,7 +386,7 @@ function toggle(row: User) {
             size="small"
             :disabled="
               rowBusy === row.ID ||
-              String(row.ID) === String(userStore.userInfo?.userId)
+                String(row.ID) === String(userStore.userInfo?.userId)
             "
             @click="remove(row)"
           >
@@ -374,5 +408,6 @@ function toggle(row: User) {
     >
       <Form />
     </Modal>
+    <MembershipModal ref="membership" @saved="grid.query()" />
   </Page>
 </template>

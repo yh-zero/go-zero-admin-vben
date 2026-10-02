@@ -22,6 +22,7 @@ import {
 } from '#/api/business/system/authority';
 import { getAuthorityMenus } from '#/api/business/system/menu';
 
+import DataScopeDrawer from '../organization/data-scope-drawer.vue';
 import {
   confirmAction,
   flattenTree,
@@ -41,6 +42,7 @@ const editing = ref<Authority>();
 const menus = ref<InstanceType<typeof MenuPermissions>>();
 const buttons = ref<InstanceType<typeof ButtonPermissions>>();
 const apis = ref<InstanceType<typeof ApiPermissions>>();
+const dataScope = ref<InstanceType<typeof DataScopeDrawer>>();
 const [Form, form] = useVbenForm<Authority>({
   showDefaultActions: false,
   wrapperClass: 'grid-cols-1',
@@ -82,7 +84,7 @@ const [Grid, grid] = useVbenVxeGrid<Authority>({
       { field: 'defaultRouter', title: '默认首页', minWidth: 150 },
       {
         title: '操作',
-        width: 430,
+        width: 530,
         fixed: 'right',
         slots: { default: 'actions' },
       },
@@ -232,6 +234,14 @@ function remove(row: Authority) {
             接口授权
           </Button>
           <Button
+            v-if="can('dataScope')"
+            type="link"
+            size="small"
+            @click="dataScope?.show(row.authorityId, row.authorityName)"
+          >
+            数据范围
+          </Button>
+          <Button
             v-if="can('delete')"
             type="link"
             danger
@@ -258,5 +268,6 @@ function remove(row: Authority) {
     <MenuPermissions ref="menus" @saved="grid.query()" />
     <ButtonPermissions ref="buttons" />
     <ApiPermissions ref="apis" />
+    <DataScopeDrawer ref="dataScope" />
   </Page>
 </template>

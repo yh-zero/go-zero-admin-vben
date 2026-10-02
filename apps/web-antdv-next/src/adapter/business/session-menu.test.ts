@@ -90,8 +90,12 @@ describe('server menu contract', () => {
     for (const menus of [
       [menu('same'), menu('same')],
       [menu('one'), menu('two', { path: 'one' })],
+      [menu('one'), menu('two', { path: '/ONE/' })],
       [menu('Root')],
       [menu('bad', { path: '/auth/login' })],
+      [menu('bad', { path: '/AUTH/Login' })],
+      [menu('bad', { path: '/Account/password' })],
+      [menu('bad', { path: '/_SESSION' })],
       [menu('bad', { path: '../index' })],
       [menu('bad', { path: '//external' })],
     ])

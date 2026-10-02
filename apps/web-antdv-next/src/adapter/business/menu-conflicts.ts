@@ -18,7 +18,8 @@ export function assertIndependentMenus(
         route.path.startsWith('/') ? route.path : `${parent}/${route.path}`
       )
         .replace(/\/{2,}/g, '/')
-        .replace(/\/$/, '');
+        .replace(/\/$/, '')
+        .toLowerCase();
       if (check) {
         if ((route.name && names.has(route.name)) || paths.has(path)) {
           throw new Error(

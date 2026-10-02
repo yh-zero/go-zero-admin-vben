@@ -66,16 +66,18 @@ export function adaptMenus(
         )
           .replace(/\/{2,}/g, '/')
           .replace(/\/$/, '');
+        // Vue Router matches paths without case sensitivity by default.
+        const pathKey = path.toLowerCase();
         if (
           !path ||
-          path.startsWith('/auth') ||
-          path === '/account' ||
-          path.startsWith('/account/') ||
-          path.startsWith('/_session') ||
-          paths.has(path)
+          pathKey.startsWith('/auth') ||
+          pathKey === '/account' ||
+          pathKey.startsWith('/account/') ||
+          pathKey.startsWith('/_session') ||
+          paths.has(pathKey)
         )
           throw new Error('后端菜单路径重复或与系统路由冲突');
-        paths.add(path);
+        paths.add(pathKey);
         const hidden = parentHidden || !!node.hidden;
         const homeStart = homes.length;
         const children = visit(node.children, path, hidden);

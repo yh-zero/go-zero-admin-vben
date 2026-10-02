@@ -33,4 +33,11 @@ describe('original pages and backend menus', () => {
       ]),
     ).toThrow('路由冲突');
   });
+  it('rejects differently cased paths that Vue Router would match to the same page', () => {
+    expect(() =>
+      assertIndependentMenus(local, [
+        { name: 'other', path: '/Dashboard/WORKSPACE/' },
+      ]),
+    ).toThrow('路由冲突');
+  });
 });

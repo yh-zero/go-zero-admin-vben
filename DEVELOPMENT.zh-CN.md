@@ -1,10 +1,10 @@
 # web-antdv-next 开发文档（接入 go-zero-admin）
 
-接口实施顺序、前后端修复点与逐项验收见 [接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。当前共 48 个 HTTP 接口，允许前后端配合修改，以简单易懂为原则；本文第 11 节保留 P0 历史计划，其中“需要修改后端就停止”等旧约束已不再适用。
+新增模块的实施顺序、启动修复和最新验收见 [前端开发顺序文档](./FRONTEND_DEVELOPMENT_PLAN.md)，通用规则见 [接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。当前共 70 个 HTTP 接口，允许前后端配合修改，以简单易懂为原则；本文第 11 节保留 P0 历史计划，其中“需要修改后端就停止”等旧约束已不再适用。
 
 业务开发统一使用 `web-antdv-next`。开发过程中优先新增独立业务文件，通过框架提供的配置和扩展点实现需求，尽量减少对上游源码的修改，降低以后升级 vue-vben-admin 时的冲突。独立文件能减少文本冲突，但框架 API 变化仍需要适配和验证。
 
-本文同时作为 `go-zero-admin` 后端接入指南。第 5 节及第 12 节已按 2026-09-26 的实现更新；第 11 节保留最初 41 个接口的规划过程。前端已关闭 Mock，登录、管理模块、个人中心及 API 同步均已接入真实后端；代码检查与真实 HTTP 验收分别记录，不以页面存在代替验收。
+本文同时作为 `go-zero-admin` 后端接入指南。当前契约核对日期为 2026-10-03；第 11 节及注明日期的验收保留历史记录。前端已关闭 Mock，新增组织、审计、文件、设备会话沿用真实后端；代码检查与真实 HTTP 验收分别记录，不以页面存在代替验收。
 
 ## 1. 项目定位与保留范围
 
@@ -109,7 +109,7 @@ defineOptions({ name: 'BusinessSystemUser' });
 
 ### 5.1 后端结构与契约来源
 
-核对日期：2026-09-26。本文以工作区实际源码为准；接口契约、数据库迁移与生成文档要作为同一版本发布，不能只凭历史提交号推断运行环境行为。
+核对日期：2026-10-03。本文以工作区实际源码为准；接口契约、数据库迁移与生成文档要作为同一版本发布，不能只凭历史提交号推断运行环境行为。
 
 请求链路：浏览器 → Vite/Nginx 代理 → `applet-api:7001` → `applet-rpc:6001` → MySQL。Redis 用于验证码及权限策略同步，etcd 用于 RPC 注册和服务发现。前端只调用 HTTP API，不直连 RPC、数据库或 Redis。API 层通过 JWT 获取当前用户，受保护接口再通过 RPC 执行 Casbin 校验；菜单权限与接口权限分别管理。
 
@@ -144,17 +144,17 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\swagger.ps1
 
 维护脚本时保留 `swagger.ps1` 的 UTF-8 BOM，确保 Windows PowerShell 5.1 正确读取中文。生成的 Swagger JSON 仍使用 UTF-8 无 BOM。
 
-- 生成范围：从 `application/applet/api/desc/applet.api` 及其导入文件读取接口，当前共 48 个；不需要启动 API、RPC、数据库或 Redis。
+- 生成范围：从 `application/applet/api/desc/applet.api` 及其导入文件读取接口，当前共 70 个；不需要启动 API、RPC、数据库或 Redis。
 - 生成方式：脚本调用官方 `goctl api swagger`，只在临时副本中添加文档元信息，再补充本项目的响应包装、JWT 和上传参数；不会重写 `.api`、handler、logic、types 或 go.mod。
 - 产物格式：Swagger 2.0 JSON。可导入 Apifox，也可使用下面的独立 Docker Swagger UI；后端没有新增 `/swagger` 页面。
 - 默认服务地址：`http://localhost:7001`。需要更换时执行 `.\test\sh\swagger.ps1 -ApiHost 'localhost:其他端口'`，参数填写不带协议和路径的主机名及端口；也可以在接口工具中配置实际服务地址。
-- 鉴权：登录、验证码接口公开，其余 46 个接口使用 `Authorization: Bearer <accessToken>`；其中 `/me`、`/changePassword`、`/logout` 仅需有效会话，其余业务接口还需 Casbin 权限。Swagger UI 的 Authorize 中填写完整的 `Bearer ...`。
+- 鉴权：登录、验证码接口公开，其余 68 个接口使用 `Authorization: Bearer <accessToken>`；其中 `/me`、`/changePassword`、`/logout`、`GET /session/devices`、`DELETE /session/device` 仅需有效会话，其余业务接口还需 Casbin 权限。Swagger UI 的 Authorize 中填写完整的 `Bearer ...`。
 - 响应：已补充 `code/message/result/returnData/success/timestamp`。业务错误和 JWT 失效可能使用 HTTP 200；先检查业务码。权限拒绝和鉴权服务异常分别为 HTTP 403/500。
 - 上传：`multipart/form-data`，文件字段 `file_img`。实际调试仍需可用的后端及 OSS 配置。
 
 goctl 目前对本项目同时含 json/form 标签的字段会产生重复参数、响应字段遗漏，脚本用两次官方生成的结果分别保留查询参数与完整 JSON 模型，并修正 `json:"-"` 字段。不要用裸命令直接覆盖项目产物，否则会丢失这些适配。官方使用方式见 [go-zero Swagger 文档](https://go-zero.dev/zh-cn/reference/cli-guide/swagger/)。
 
-文档生成不会修复后端业务问题：`getMenuAuthority`、`getBaseMenuById` 的 GET 必填字段仍只有 json 标签，浏览器无法发送对应 body；文档保留现状并注明限制。部分列表接口含可选 GET body，可省略该 body，使用已列出的 query 参数。字典项详情的 `form:"id":"id"` 标签不规范，脚本依据当前 Go 反射行为补充 `id` 查询参数。注册成功当前返回 `result: null`，文档也按此注明。具体缺口见 5.8。
+GET 参数已统一为 query，包括 `getMenuAuthority`、`getBaseMenuById` 和字典详情；不要沿用旧文档的 GET body。注册成功返回 `result: null`，前端不读取虚构的用户对象。文档生成不能代替业务实现检查，新增字段仍需核对 `.api`、生成类型与逻辑。
 
 以后新增或修改接口时：修改 `.api` 和业务实现 → 重新生成 Swagger → 检查方法、路径、参数和响应 → 重新构建 RPC/API → 一起提交源码与 JSON。RPC 的 API 同步读取编译时嵌入的 Swagger，必须先生成后构建；只刷新 Swagger UI 不会更新同步预览。不要手改生成 JSON，统一响应或鉴权变化应调整 `swagger.ps1`；升级 goctl 后核对适配是否仍需要。
 
@@ -386,7 +386,7 @@ export function deleteUser(userId: number) {
 - 菜单使用全量树，不提供假的服务端分页；注册 result=null 是明确契约。
 - API 同步只对勾选项新增资源或更新分组/说明，保留已有权限；新资源不自动授权，失效资源不自动删除。预览版本过期或失败后必须重新选择。
 - 后端保护最后一个有效内置管理员，用户名及业务唯一约束兼容软删除；迁移遇重复数据会停止，不自动删除用户数据。
-- 暂无 refreshToken、独立切换角色、找回密码和操作日志。邮箱只有受保护的发送接口，不代表已支持匿名注册、邮箱绑定或找回密码；OSS/SMTP 成功流程需外部配置后验收。
+- 暂无 refreshToken、独立切换角色和找回密码；操作审计已增加只读查询。邮箱只有受保护的发送接口，不代表已支持匿名注册、邮箱绑定或找回密码；OSS/SMTP 成功流程需外部配置后验收。
 
 ### 5.9 验收清单
 
@@ -469,7 +469,7 @@ export function deleteUser(userId: number) {
 
 ## 11. 原始接口接入计划与 P0 历史记录（2026-09-25）
 
-本节保留当时以 41 个接口、仅实施 P0 为范围的历史计划和验证记录。P1～P5 后续已开发，当前已扩展到 48 个接口；旧限制与“尚未实施”等表述只描述当时状态，当前开发按第 5、12 节及接口接入流程执行。
+本节保留当时以 41 个接口、仅实施 P0 为范围的历史计划和验证记录。P1～P5 后续已开发，当前已扩展到 70 个接口；旧限制与“尚未实施”等表述只描述当时状态，当前开发按第 5、12 节及前端开发顺序文档执行。
 
 ### 11.1 实施顺序和验收
 
@@ -496,7 +496,7 @@ export function deleteUser(userId: number) {
 
 ### 11.3 原始 41 个接口清单（历史）
 
-下表为原始计划，不包含后来新增的 2 个按钮、3 个会话和 2 个 API 同步接口。当前完整接口以生成的 48 接口 Swagger 和接口接入流程为准。
+下表为原始计划，不包含后续按钮、会话、API 同步及组织/审计/文件/设备模块。当前完整接口以生成的 70 接口 Swagger 和前端开发顺序文档为准。
 
 | 阶段 | 方法 | 路径 | 用途 |
 | --- | --- | --- | --- |
@@ -558,7 +558,7 @@ export function deleteUser(userId: number) {
 - 类型检查、定向 ESLint 和生产构建通过，验证码绑定修复后的最终类型/构建复核也通过。构建仍有上游依赖 BigInt 与旧浏览器目标的提示，本次未扩大范围修改共享构建配置。
 - 2026-09-25 已使用用户提供的账号、经明确授权填写验证码完成真实登录：原有菜单与后端业务菜单同时展示，角色管理显示“尚未接入”，原有工作台可访问，刷新 /dashboard/workspace 后会话与合并菜单正常恢复。退出后重新登录、令牌过期和其他角色仍待端到端验收；没有绕过验证码、伪造令牌或修改后端。
 
-当前开发启动：先在后端运行数据库 Init/Migrate，再由 VS Code 启动 RPC/API；前端运行 pnpm dev，默认 http://localhost:5999。修改代理或环境文件后重启前端。验证码已按 captchaId 隔离，多个标签不会互相覆盖，使用当前图片的 ID 与字符。
+当前开发启动：已有数据库执行 Status/Migrate，不重复 Init。在后端根目录运行 `powershell.exe -NoProfile -ExecutionPolicy Bypass -File test/sh/dev.ps1 -Action Start`，RPC/API 会检查待迁移并给出提示；需要备份并迁移时显式添加 `-Migrate`。前端运行 pnpm dev，默认 http://localhost:5999。修改代理或环境文件后重启前端。验证码已按 captchaId 隔离，多个标签不会互相覆盖，使用当前图片的 ID 与字符。
 
 若 getMenu 返回403或后端业务错误，记录接口与实际账号并定位原因。后续阶段已允许按接口接入流程配合修改后端策略、数据或源码，修复后重新验收；不能通过关闭鉴权绕过问题。
 
@@ -575,9 +575,9 @@ export function deleteUser(userId: number) {
 
 验证结果：本次菜单合并通过类型检查、定向 ESLint、生产构建和 14 项测试（含 3 项路由合并冲突测试）。原有 dashboard、demos 页面和 routes/modules 文件没有修改；本次没有修改后端。浏览器已验证真实登录、合并菜单、原有工作台访问及刷新恢复。
 
-## 12. 当前开发流程与优化结果（2026-09-26）
+## 12. 当前开发流程与优化结果（2026-10-03）
 
-本节描述当前实现，后续不再沿用第 11 节的 P0 限制或旧会话设计。完整 API 契约在后端生成的 48 接口 Swagger；实施细节和回归记录见 [接口接入开发流程](./DEVELOPMENT-WORKFLOW.zh-CN.md)。
+本节描述当前实现，后续不再沿用第 11 节的 P0 限制或旧会话设计。完整 API 契约在后端生成的 70 接口 Swagger；新增模块和最新回归记录见 [前端开发顺序文档](./FRONTEND_DEVELOPMENT_PLAN.md)。
 
 ### 12.1 每次更新后的启动顺序
 
@@ -597,7 +597,7 @@ powershell.exe -NoProfile -ExecutionPolicy Bypass -File .\test\sh\db.ps1 -Action
 
 Linux 使用 `sh test/sh/db.sh init|status|backup|migrate`（每次选择一个动作）。部署命令增加 `deploy` 参数，PowerShell 增加 `-Environment Deploy`，详见 [后端 README](../go-zero-admin/README.md)。开发和部署配置、数据卷分开。
 
-当前六份迁移由 `schema_migrations` 记录文件名和校验值；已执行文件跳过，内容被改过则停止，应新增文件继续变更。执行待应用迁移前自动备份至后端 `bin/db-backups/`，失败即停止。MySQL DDL 可能隐式提交，不承诺整批回滚；查明原因后再执行。`20260926_00_method_dictionary.sql` 只修复符合旧种子特征的 POST 字典值，用户改过的记录不会被覆盖。异常遗留的 `/tmp/gozero-db-migrate.lock` 只在确认没有其他迁移进程后清理。
+迁移由 `schema_migrations` 记录文件名和校验值；2026-10-02 新增策略同步、审计、组织、文件、设备和授权六份迁移，2026-10-03 另增前端菜单种子。已执行文件跳过，内容被改过则停止，应新增文件继续变更。执行待应用迁移前自动备份至后端 `bin/db-backups/`，失败即停止。MySQL DDL 可能隐式提交，不承诺整批回滚；查明原因后再执行。`20260926_00_method_dictionary.sql` 只修复符合旧种子特征的 POST 字典值，用户改过的记录不会被覆盖。异常遗留的 `/tmp/gozero-db-migrate.lock` 只在确认没有其他迁移进程后清理。
 
 ### 12.2 业务开发约定
 
@@ -608,8 +608,12 @@ Linux 使用 `sh test/sh/db.sh init|status|backup|migrate`（每次选择一个�
 - **会话与个人中心：**`/account` 从 `GET /v1/sys/me` 读取真实资料；`PUT /v1/sys/changePassword` 改密后退出；`POST /v1/sys/logout` 注销该账号所有设备。JWT 默认 2 小时，改密、冻结、重置、删除和角色集合变更通过 `session_version` 撤销旧会话；前端隔离旧请求的迟到响应。尚无 refreshToken、在线切换 JWT 角色或找回密码接口。
 - **管理员保护：**后端保护最后一个可用管理员的账号、角色和关键授权，不用真实唯一管理员做破坏性测试；业务唯一约束由接口校验及数据库共同保证。
 
-### 12.3 当前检查结果
+### 12.3 历史检查结果（2026-09-26）
 
 2026-09-26：前端应用类型检查通过，全部单元测试 **93 个文件、638 项通过**，生产构建通过。业务 CRUD 与授权 HTTP 回归通过；会话的本人资料、改密、冻结、默认角色、关联角色、重置、注销、删除共 8 个场景通过，其中两次人工验证码误输入的场景已针对性重测；API 同步 3 项 HTTP 回归通过。
 
-OSS 上传和 SMTP 实际送达仍缺外部配置，成功流程明确跳过，不计为通过。操作日志未在本轮实现。更详细的复测记录与可复用脚本见接口接入流程文档；上游 Vben 开发时固定输出的表单 slot 迁移提示不是当前业务组件绑定错误。
+当时 OSS 上传和 SMTP 实际送达缺外部配置，成功流程明确跳过，不计为通过；操作日志当时尚未实现，现已在新增模块中实现。更详细的历史复测记录与可复用脚本见接口接入流程文档；上游 Vben 开发时固定输出的表单 slot 迁移提示不是当前业务组件绑定错误。
+
+### 12.4 新增模块开发规则
+
+组织、审计、文件、设备模块按 [前端开发顺序文档](./FRONTEND_DEVELOPMENT_PLAN.md) 实施和验收。用户归属变化会撤销其旧会话；内置角色1的数据范围固定为全部。密码新建/修改按 UTF-8 字节校验8至72字节，登录允许历史短密码。文件默认公开上传，私有访问链接有效期300秒，不能用于长期头像；文件引用首版由管理员手工维护，删除受引用保护。撤销当前设备只清理本地登录态，不再调用全设备注销接口。

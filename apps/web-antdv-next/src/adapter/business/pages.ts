@@ -51,6 +51,31 @@ export const businessPages = [
     value: 'views/business/tools/index.vue',
     component: '/business/tools/index.vue',
   },
+  {
+    label: '部门管理',
+    value: 'views/business/system/organization/departments.vue',
+    component: '/business/system/organization/departments.vue',
+  },
+  {
+    label: '岗位管理',
+    value: 'views/business/system/organization/positions.vue',
+    component: '/business/system/organization/positions.vue',
+  },
+  {
+    label: '操作审计',
+    value: 'views/business/system/audit/index.vue',
+    component: '/business/system/audit/index.vue',
+  },
+  {
+    label: '文件资源',
+    value: 'views/business/system/files/index.vue',
+    component: '/business/system/files/index.vue',
+  },
+  {
+    label: '在线会话',
+    value: 'views/business/system/sessions/index.vue',
+    component: '/business/system/sessions/index.vue',
+  },
 ];
 
 const pageMap = new Map(
