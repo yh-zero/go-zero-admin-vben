@@ -1,6 +1,6 @@
 # @vben/hooks
 
-用于多个 `app` 公用的 hook，继承了 `@vben/hooks` 的所有能力。业务上有通用 hooks 可以放在这里。
+用于多个 `app` 公用的 hook，重新导出 `@vben-core/composables` 的能力，并提供应用配置、分页、页签等组合函数。业务通用 hooks 优先放在应用自己的业务目录。
 
 ## 用法
 
