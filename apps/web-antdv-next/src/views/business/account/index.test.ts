@@ -15,6 +15,13 @@ const mocks = vi.hoisted(() => ({
   getCurrentUser: vi.fn(),
   logout: vi.fn(),
   access: { accessToken: 'old-token' },
+  publicDemo: false,
+  mountDevices: vi.fn(),
+}));
+vi.mock('#/adapter/business/demo', () => ({
+  get isPublicDemo() {
+    return mocks.publicDemo;
+  },
 }));
 vi.mock('#/api/business/account', () => ({
   changeMyPassword: mocks.changeMyPassword,
@@ -24,7 +31,10 @@ vi.mock('#/store', () => ({ useAuthStore: () => ({ logout: mocks.logout }) }));
 vi.mock('@vben/stores', () => ({ useAccessStore: () => mocks.access }));
 vi.mock('#/components/business/device-sessions.vue', async () => {
   const { defineComponent, h } = await import('vue');
-  return { default: defineComponent({ setup: () => () => h('div') }) };
+  return { default: defineComponent({ setup: () => {
+    mocks.mountDevices();
+    return () => h('div');
+  } }) };
 });
 vi.mock('@vben/common-ui', async () => {
   const { defineComponent, h } = await import('vue');
@@ -59,7 +69,7 @@ describe('account password session safety', () => {
   let app: App | undefined;
   let element: HTMLDivElement;
   beforeEach(() => {
-    vi.resetAllMocks(); mocks.access.accessToken = 'old-token';
+    vi.resetAllMocks(); mocks.access.accessToken = 'old-token'; mocks.publicDemo = false;
     mocks.validate.mockResolvedValue({ valid: true });
     mocks.getValues.mockResolvedValue({ oldPassword: 'old', newPassword: 'Strong@123', confirmPassword: 'Strong@123' });
     mocks.getCurrentUser.mockResolvedValue({ userName: 'tester' });
@@ -71,6 +81,22 @@ describe('account password session safety', () => {
   async function mount() { app = createApp(Account); app.mount(element); await nextTick(); }
   function saveButton() { return [...element.querySelectorAll('button')].find((button) => button.textContent?.includes('修改密码并退出'))!; }
   async function flush() { for (let count = 0; count < 8; count++) await Promise.resolve(); await nextTick(); }
+  it('hides shared account password and devices in the public demo', async () => {
+    mocks.publicDemo = true;
+    await mount();
+    await flush();
+    expect(element.textContent).toContain('当前为公开演示');
+    expect(saveButton()).toBeUndefined();
+    expect(mocks.mountDevices).not.toHaveBeenCalled();
+    expect(mocks.changeMyPassword).not.toHaveBeenCalled();
+    expect(mocks.getCurrentUser).toHaveBeenCalledOnce();
+  });
+  it('keeps device management and password controls outside the demo', async () => {
+    await mount();
+    expect(saveButton()).toBeDefined();
+    expect(mocks.mountDevices).toHaveBeenCalledOnce();
+    expect(element.textContent).not.toContain('当前为公开演示');
+  });
   it('blocks repeat submissions while validation and the password write are pending', async () => {
     const validation = deferred<{ valid: boolean }>(); const write = deferred<null>();
     mocks.validate.mockReturnValue(validation.promise); mocks.changeMyPassword.mockReturnValue(write.promise);

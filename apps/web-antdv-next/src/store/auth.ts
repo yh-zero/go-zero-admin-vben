@@ -9,6 +9,7 @@ import { resetAllStores, useAccessStore, useUserStore } from '@vben/stores';
 import { notification } from 'antdv-next';
 import { defineStore } from 'pinia';
 
+import { isPublicDemo } from '#/adapter/business/demo';
 import {
   clearSessionCache,
   safeRedirect,
@@ -63,7 +64,8 @@ export const useAuthStore = defineStore('auth', () => {
     );
     const token = accessStore.accessToken;
     try {
-      if (revoke && token) await logoutApi(token);
+      // Demo visitors share an account; server logout revokes all its devices.
+      if (revoke && token && !isPublicDemo) await logoutApi(token);
     } catch {
       if (accessStore.accessToken === token)
         notification.warning({

@@ -11,6 +11,12 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   warning: vi.fn(),
   clear: vi.fn(),
+  publicDemo: false,
+}));
+vi.mock('#/adapter/business/demo', () => ({
+  get isPublicDemo() {
+    return mocks.publicDemo;
+  },
 }));
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -48,6 +54,16 @@ describe('logout and current-user request races', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     mocks.access.accessToken = 'old-token';
+    mocks.publicDemo = false;
+  });
+  it('only clears the current browser in public demo mode', async () => {
+    mocks.publicDemo = true;
+    await useAuthStore().logout();
+    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(mocks.access.accessToken).toBe('');
+    expect(mocks.clear).toHaveBeenCalledOnce();
+    expect(mocks.replace).toHaveBeenCalledOnce();
+    expect(mocks.warning).not.toHaveBeenCalled();
   });
   it('clears local state even when server logout fails', async () => {
     mocks.logout.mockRejectedValueOnce(new Error('network'));

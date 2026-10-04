@@ -2,6 +2,8 @@
 
 基于 [vue-vben-admin](https://github.com/vbenjs/vue-vben-admin)，业务应用统一使用 **web-antdv-next**（Vue3、TypeScript、antdv-next），已接入 go-zero-admin 的真实登录、菜单、组织、审计、文件、设备及 AI 接口。当前共 76 个 HTTP 接口，真实契约以配套后端 `.api`、注册路由、类型/逻辑及生成的 Swagger 为准。
 
+在线演示：[yh9527.top（HTTPS）](https://yh9527.top) · [IP入口](http://175.178.67.80)。账号 `admin / 123456`，需图片验证码；当前为只读演示，AI 未配置 Key。
+
 ## 本地开发与启动
 
 在仓库根目录安装依赖；保留 `packages/`、`internal/` 与脚本，应用通过 `workspace:*` 使用这些源码，不能只复制一个 apps 目录运行。Node 要求 `^22.18.0 || ^24.12.0`，pnpm 按 `packageManager` 固定为 `11.16.0`，以实际 package.json 为准。
@@ -29,6 +31,10 @@ Vite `/api` 代理至 `http://127.0.0.1:7001`，去掉 `/api` 后保留 `/v1/sys
 修改环境或代理后重启前端。生产静态产物不包含 Vite 代理；若沿用 `/api`，由 Nginx 等服务去掉该前缀并转发到后端。后端容器/远程主机按实际网络使用可达地址。当前默认 hash 路由，改为 history 时另配置回退至 index.html；部署方法见 [后端部署说明](https://github.com/yh-zero/go-zero-admin/blob/HEAD/docker/部署说明.md)。
 
 模型 Key 仅在后端 AI 进程配置；JWT 密钥、数据库/OSS/SMTP密码、模型 Key 均不进入前端或 `VITE_*`。前端既不连接 RPC，也不直接访问数据库、Redis或对象存储管理凭据。
+
+公开参考站点可在构建时设置 `VITE_PUBLIC_DEMO=true`，默认关闭。演示登录页显示公开账号 `admin / 123456` 和只读说明，个人中心隐藏改密及设备列表，退出仅清除当前浏览器状态，避免共享账号的服务器退出让其他访客掉线。已有令牌仍由后端到期或管理员撤销，应给演示账号配置较短有效期。修改此标记需要重新构建；它只影响界面，后端和反向代理必须另行禁止写操作、注册、设备/审计隐私查询，不给演示角色变更按钮权限。模型模块可以保留并停用，不配置 Key。用户名不决定权限，公开 `admin` 使用普通只读角色，私有维护账号另行配置。
+
+2026-10-04 已验证云端 HTTPS、正常验证码登录、业务读取和禁止写入。完整部署、升级及快速恢复见 [后端部署说明](https://github.com/yh-zero/go-zero-admin/blob/HEAD/docker/部署说明.md) 和 [快速恢复文档](https://github.com/yh-zero/go-zero-admin/blob/HEAD/QUICK_RECOVERY.md)。
 
 ## 检查与构建
 
@@ -113,7 +119,9 @@ AI 页面为 `src/views/business/ai-agent/index.vue`，请求为 `api/business/a
 | GET `/v1/ai/conversations` | 本人会话，pageNo/pageSize，items/total |
 | GET `/v1/ai/conversations/:id/messages` | 本人消息，pageNo/pageSize，按sequence倒序，前端反转当前页 |
 
-内置只读工具为最多31天审计汇总/最近记录、已知fileId的文件状态/引用数、本人有效设备。不枚举全部文件或返回下载地址，不查其他人设备；工具名称、可用性与描述以服务端为准。发送前说明云模型会收到问题、成功历史与授权结果，模型文本、消息和错误均以纯文本显示，不用 v-html，不展示隐藏推理或伪造结果。
+内置只读工具为最多31天审计汇总/最近记录、已知fileId的文件状态/引用数、本人有效设备。不枚举全部文件或返回下载地址，不查其他人设备；工具名称、可用性与描述以服务端为准。发送前说明云模型会收到问题、成功历史与授权结果。AI 回答及历史回复使用受限 Markdown 显示表格、标题、列表、代码和粗体，通过 Vue 转义文本节点渲染，不用 v-html，不执行 HTML、不生成可点击链接或加载图片；用户问题和错误仍以纯文本显示，不展示隐藏推理或伪造结果。
+
+成功查询的答案包含后端生成的“查询明细”，模型省略记录时仍可显示实际授权字段；沿用现有 answer/content 字段，刷新或读取历史后仍可展示。明细区分总数与返回样本，每组最多20条并受后端长度限制，空结果和截断有提示。畸形表格保留为原文，成功但空回复会显示明确提示；完整数据可到对应业务页面查询。
 
 - 未启用/未配置禁用提交，AI服务在线时仍可查历史；离线返回100001安全错误，页面保留重试。AI服务不可用不影响普通后台API启动。
 - requestId为UUID，同一会话/输入的结果不确定重试保留该ID；修改输入或新会话生成新ID。已取得任务的模型失败重发时创建新任务。首次成功返回任务/会话ID后才切换，不预写假成功消息。

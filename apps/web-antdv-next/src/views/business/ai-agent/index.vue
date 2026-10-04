@@ -13,6 +13,7 @@ import {
 } from 'antdv-next';
 
 import { usePermission } from '../system/shared';
+import AgentAnswer from './agent-answer.vue';
 import { agentPageSize, useAgentWorkspace } from './use-agent';
 
 defineOptions({ name: 'AiAgent' });
@@ -92,8 +93,8 @@ function timeText(value: string) {
           </Tag>
           <span v-if="info?.provider">{{ info.provider }} · {{ info.model }}</span>
           <Button size="small" :loading="infoLoading" @click="loadInfo">
-刷新服务状态
-</Button>
+            刷新服务状态
+          </Button>
         </Space>
         <Alert
           v-if="infoError"
@@ -109,9 +110,7 @@ function timeText(value: string) {
         </p>
         <p v-if="info" class="mt-3 text-sm">
           任务最多 {{ info.maxSteps }} 步，最长
-          {{
-            info.maxRunSeconds
-          }}
+          {{ info.maxRunSeconds }}
           秒。工具只读，始终受你的接口权限和数据范围限制。
         </p>
         <div v-if="info?.tools.length" class="mt-3 flex flex-wrap gap-2">
@@ -129,11 +128,11 @@ function timeText(value: string) {
         <aside class="bg-card rounded-lg border p-4" aria-label="历史会话">
           <Space class="mb-4" wrap>
             <Button :disabled="submitting" @click="newConversation">
-新会话
-</Button>
+              新会话
+            </Button>
             <Button :loading="historyLoading" @click="loadConversations()">
-刷新历史
-</Button>
+              刷新历史
+            </Button>
           </Space>
           <Alert
             v-if="historyError"
@@ -194,12 +193,15 @@ function timeText(value: string) {
               :loading="messagesLoading"
               :disabled="submitting || stopping"
               @click="loadMessages(latestRunKnown ? messagePage : 1)"
-              >
-重新读取消息与最新任务
-</Button>
+            >
+              重新读取消息与最新任务
+            </Button>
           </div>
           <Alert v-if="messagesError" type="error" :message="messagesError" />
-          <p v-if="selectedId && !latestRunKnown && !messagesLoading" class="text-sm">
+          <p
+            v-if="selectedId && !latestRunKnown && !messagesLoading"
+            class="text-sm"
+          >
             最新任务状态尚未确认。请重新读取消息与最新任务，再发送或停止任务。
           </p>
           <Spin :spinning="messagesLoading">
@@ -222,7 +224,11 @@ function timeText(value: string) {
                 <div class="text-muted-foreground mb-2 flex gap-3 text-xs">
                   <strong>{{ item.role === 'user' ? '你' : 'AI' }}</strong><span>{{ timeText(item.createdAt) }}</span>
                 </div>
-                <p class="whitespace-pre-wrap break-words">
+                <AgentAnswer
+                  v-if="item.role === 'assistant'"
+                  :content="item.content"
+                />
+                <p v-else class="whitespace-pre-wrap break-words">
                   {{ item.content }}
                 </p>
               </article>
@@ -251,18 +257,18 @@ function timeText(value: string) {
                       ? 'red'
                       : 'blue'
                 "
-                >
-{{ statusText(run.status) }}
-</Tag>
+              >
+                {{ statusText(run.status) }}
+              </Tag>
               <span class="text-xs">{{ run.provider }} · {{ run.model }}</span>
               <span v-if="polling" class="text-xs">每 2 秒查询状态</span>
               <Button
                 size="small"
                 :disabled="stopping || submitting || !latestRunKnown"
                 @click="refreshRun()"
-                >
-重新获取状态
-</Button>
+              >
+                重新获取状态
+              </Button>
               <Button
                 v-if="active && can('cancel')"
                 size="small"
@@ -270,25 +276,22 @@ function timeText(value: string) {
                 :disabled="!latestRunKnown"
                 :loading="stopping"
                 @click="cancel"
-                >
-停止任务
-</Button>
+              >
+                停止任务
+              </Button>
             </Space>
             <p v-if="run.error" class="whitespace-pre-wrap break-words text-sm">
               {{ run.error }}
             </p>
-            <p
+            <AgentAnswer
               v-if="
                 run.status === 'succeeded' &&
-                run.answer &&
                 !messages.some(
-                (item) => item.role === 'assistant' && item.runId === run?.id,
+                  (item) => item.role === 'assistant' && item.runId === run?.id,
                 )
               "
-              class="whitespace-pre-wrap break-words"
-            >
-              {{ run.answer }}
-            </p>
+              :content="run.answer"
+            />
             <p v-if="run.status === 'interrupted'" class="text-sm">
               任务已中断，可重新发送问题创建新任务。
             </p>
@@ -332,9 +335,9 @@ function timeText(value: string) {
                 :loading="submitting"
                 :disabled="!canSubmit"
                 @click="submit"
-                >
-{{ retrying ? '重试提交' : '发送' }}
-</Button>
+              >
+                {{ retrying ? '重试提交' : '发送' }}
+              </Button>
               <span v-else class="text-muted-foreground text-sm">当前角色没有执行任务权限。</span>
             </div>
           </div>

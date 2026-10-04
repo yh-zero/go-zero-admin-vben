@@ -15,6 +15,7 @@ import {
   Spin,
 } from 'antdv-next';
 
+import { isPublicDemo } from '#/adapter/business/demo';
 import {
   isValidPassword,
   passwordValidationMessage,
@@ -127,7 +128,12 @@ onMounted(load);
           </Descriptions>
         </Spin>
       </Card>
-      <Card title="修改密码">
+      <Card v-if="isPublicDemo" title="只读演示账号">
+        <p class="text-muted-foreground">
+          当前为公开演示，不开放修改密码和设备会话管理。退出仅清除当前浏览器登录状态，避免影响其他访客。
+        </p>
+      </Card>
+      <Card v-else title="修改密码">
         <p class="text-muted-foreground mb-4">
           修改后，当前账号在所有设备的登录都会失效。
         </p>
@@ -139,7 +145,7 @@ onMounted(load);
         </div>
       </Card>
     </div>
-    <Card title="我的登录设备" class="mt-4">
+    <Card v-if="!isPublicDemo" title="我的登录设备" class="mt-4">
       <DeviceSessions />
     </Card>
   </Page>
