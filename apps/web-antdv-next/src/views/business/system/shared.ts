@@ -1,6 +1,8 @@
 import { useAccessStore, useUserStore } from '@vben/stores';
 
 import { message, Modal } from 'antdv-next';
+
+import { notifyPermissionChange } from '#/router/permission-refresh-events';
 export interface TableQuery {
   page: { currentPage: number; pageSize: number };
 }
@@ -41,7 +43,7 @@ export function confirmAction(
 // A full reload re-runs authenticated menu generation and retains the original Vben menus.
 export function refreshAccess() {
   message.success('已保存，正在更新菜单与按钮权限');
-  window.location.reload();
+  notifyPermissionChange();
 }
 
 export function isCurrentRole(roleId: number) {
@@ -50,5 +52,8 @@ export function isCurrentRole(roleId: number) {
 
 export function refreshRoleAccess(roleId: number) {
   if (isCurrentRole(roleId)) refreshAccess();
-  else message.success('授权已保存');
+  else {
+    notifyPermissionChange();
+    message.success('授权已保存');
+  }
 }

@@ -15,6 +15,7 @@ import {
   deleteMenu,
   getMenu,
   getMenus,
+  previewMenuMove,
   updateMenu,
 } from '#/api/business/system/menu';
 
@@ -24,10 +25,13 @@ import {
   refreshAccess,
   usePermission,
 } from '../shared';
+import { useEditSession } from '../use-edit-session';
 import { changedMenuButtons, prepareMenuButtons } from './buttons';
 const can = usePermission('menu');
 const open = ref(false);
 const saving = ref(false);
+const loaded = ref(false);
+const session = useEditSession(open, loaded, saving);
 const editing = ref<Menu>();
 const rows = ref<Menu[]>([]);
 const buttons = ref<MenuButton[]>([]);
@@ -135,11 +139,19 @@ const [Grid, grid] = useVbenVxeGrid<Menu>({
   },
 });
 async function showForm(row?: Menu) {
-  const detail = row ? (await getMenu(row.ID)).sysBaseMenu : undefined;
+  const ticket = session.begin(row?.ID ?? 0);
+  open.value = true;
+  loaded.value = false;
+  saving.value = false;
+  const detail = row
+    ? (await getMenu(row.ID, ticket.token)).sysBaseMenu
+    : undefined;
+  if (!session.valid(ticket)) return;
   editing.value = detail;
   buttons.value = (detail?.menuBtn ?? []).map((button) => ({ ...button }));
   open.value = true;
   await form.reset();
+  if (!session.valid(ticket)) return;
   const excluded = new Set(
     detail ? flattenTree([row!]).map((item) => item.ID) : [],
   );
@@ -179,12 +191,15 @@ async function showForm(row?: Menu) {
           keepAlive: false,
         },
   );
+  if (session.valid(ticket)) loaded.value = true;
 }
 async function save() {
-  if (saving.value) return;
+  if (saving.value || !loaded.value) return;
+  const ticket = session.capture();
+  const original = editing.value ? { ...editing.value } : undefined;
   saving.value = true;
   try {
-    if (!(await form.validate()).valid) return;
+    if (!(await form.validate()).valid || !session.valid(ticket)) return;
     let menuBtn: MenuButton[];
     try {
       menuBtn = prepareMenuButtons(buttons.value);
@@ -193,6 +208,7 @@ async function save() {
       return;
     }
     const values = await form.getValues();
+    if (!session.valid(ticket)) return;
     const data: Menu = {
       ID: editing.value?.ID ?? 0,
       parentId: values.parentId,
@@ -215,31 +231,58 @@ async function save() {
     const renamed =
       editing.value && editing.value.name !== data.name && menuBtn.length > 0;
     const persist = async () => {
+      if (!session.valid(ticket)) return;
       saving.value = true;
       try {
-        await (data.ID ? updateMenu(data) : createMenu(data));
+        await (data.ID
+          ? updateMenu(data, ticket.token)
+          : createMenu(data, ticket.token));
+        if (!session.valid(ticket)) return;
         open.value = false;
         refreshAccess();
+        await grid.query();
       } finally {
-        saving.value = false;
+        if (session.valid(ticket)) saving.value = false;
       }
     };
-    if (changed.length || renamed) {
+    if (original && original.parentId !== data.parentId) {
+      const preview = await previewMenuMove(
+        data.ID,
+        data.parentId,
+        ticket.token,
+      );
+      if (!session.valid(ticket)) return;
+      data.movePreviewVersion = preview.version;
+      confirmAction(
+        '确认移动菜单及补齐父菜单授权？',
+        persist,
+        '受影响角色：' +
+          (preview.authorityIds.join('、') || '无') +
+          '；新父链：' +
+          (preview.ancestorIds.join('、') || '根目录') +
+          '；新增关联：' +
+          JSON.stringify(preview.addedLinks) +
+          '。提交时影响变化将拒绝，需重新预览。',
+      );
+    } else if (changed.length || renamed) {
       confirmAction(
         '确认修改按钮权限定义？',
         persist,
-        `${renamed ? `菜单名称由 ${editing.value!.name} 改为 ${data.name}，将改变此菜单全部按钮的权限码前缀。` : ''}${changed.length ? `以下按钮被删除或修改标识：${changed.map((button) => `${button.desc} (${button.name})`).join('、')}。` : ''}删除会撤销关联角色的按钮授权；修改标识会改变页面使用的权限码，请同步业务代码。`,
+        `${renamed ? `菜单名称由 ${editing.value!.name} 改为 ${data.name}，稳定权限码保持不变。` : ''}${changed.length ? `以下按钮被删除或修改标识：${changed.map((button) => `${button.desc} (${button.name})`).join('、')}。` : ''}删除会撤销关联角色的按钮授权；已有按钮稳定权限码保持不变。`,
       );
     } else await persist();
   } finally {
-    saving.value = false;
+    if (session.valid(ticket)) saving.value = false;
   }
 }
 function remove(row: Menu) {
+  const ticket = session.capture();
   confirmAction(
     `删除菜单 ${row.meta.title}？`,
     async () => {
-      await deleteMenu(row.ID);
+      if (!session.valid(ticket)) return;
+      await deleteMenu(row.ID, ticket.token);
+      if (!session.valid(ticket)) return;
       message.success('已删除');
       await grid.query();
       refreshAccess();
@@ -283,6 +326,7 @@ function remove(row: Menu) {
       :width="640"
       :title="editing ? '编辑菜单' : '新增菜单'"
       :confirm-loading="saving"
+      :ok-button-props="{ disabled: !loaded }"
       :force-render="true"
       :mask-closable="false"
       :cancel-button-props="{ disabled: saving }"
@@ -296,13 +340,14 @@ function remove(row: Menu) {
           <Button
             :disabled="saving"
             @click="buttons.push({ name: '', desc: '' })"
-            >新增按钮</Button
           >
+            新增按钮
+          </Button>
         </div>
         <Alert
           class="mb-3"
           type="info"
-          message="按钮名称用于授权展示，权限标识用于页面代码（菜单名称:按钮标识）。按钮授权和接口授权分别维护。"
+          message="按钮名称用于展示。已有按钮的稳定权限码在创建后保持不变；按钮授权和接口授权分别维护。"
         />
         <div
           v-for="(button, index) in buttons"
@@ -323,9 +368,9 @@ function remove(row: Menu) {
             placeholder="权限标识，如 create"
             :aria-label="`按钮 ${index + 1} 权限标识`"
           />
-          <Button danger :disabled="saving" @click="buttons.splice(index, 1)"
-            >删除</Button
-          >
+          <Button danger :disabled="saving" @click="buttons.splice(index, 1)">
+            删除
+          </Button>
         </div>
         <p v-if="!buttons.length" class="text-muted-foreground mb-3 text-sm">
           尚未定义按钮。

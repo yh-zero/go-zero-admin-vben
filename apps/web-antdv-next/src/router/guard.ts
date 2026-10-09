@@ -13,10 +13,11 @@ import {
   SESSION_HOME,
   StaleSessionResponseError,
 } from '#/adapter/business/session';
-import { accessRoutes, coreRouteNames } from '#/router/routes';
+import { coreRouteNames } from '#/router/routes';
 import { useAuthStore } from '#/store';
 
-import { generateAccess } from './access';
+import { permissionNavigationTarget } from './permission-location';
+import { installPermissionRefresh } from './permission-refresh';
 
 /**
  * 通用守卫配置
@@ -53,6 +54,7 @@ function setupCommonGuard(router: Router) {
  * @param router
  */
 function setupAccessGuard(router: Router) {
+  let refresh: (() => Promise<void>) | undefined;
   router.beforeEach(async (to) => {
     const accessStore = useAccessStore();
     const userStore = useUserStore();
@@ -78,19 +80,22 @@ function setupAccessGuard(router: Router) {
       return true;
     }
     if (!accessStore.accessToken) return login();
-    if (accessStore.isAccessChecked) return true;
+
     const requestToken = accessStore.accessToken;
     try {
-      const userInfo = await authStore.fetchUserInfo();
-      const { accessibleMenus, accessibleRoutes } = await generateAccess({
-        roles: userInfo.roles ?? [],
-        router,
-        routes: accessRoutes,
-      });
+      const alreadyChecked = accessStore.isAccessChecked;
+      refresh ??= installPermissionRefresh(router);
+      await refresh();
       if (accessStore.accessToken !== requestToken) return false;
-      accessStore.setAccessMenus(accessibleMenus);
-      accessStore.setAccessRoutes(accessibleRoutes);
-      accessStore.setIsAccessChecked(true);
+      if (alreadyChecked) {
+        return (
+          permissionNavigationTarget(
+            router,
+            to,
+            userStore.userInfo?.homePath || SESSION_HOME,
+          ) ?? true
+        );
+      }
       return {
         path:
           to.path === SESSION_HOME

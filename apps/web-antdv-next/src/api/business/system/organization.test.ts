@@ -45,14 +45,24 @@ describe('organization HTTP contract', () => {
       '/v1/sys/organization/membership',
       { userId: 3, departmentId: 0, positionIds: [] },
     );
-    await updateRoleDataScope({
-      authorityId: 9,
-      scope: 'self',
-      departmentIds: [],
-    });
+    await updateRoleDataScope(
+      {
+        authorityId: 9,
+        scope: 'self',
+        departmentIds: [],
+        expectedRevision: '7',
+      },
+      'token',
+    );
     expect(mocks.put).toHaveBeenLastCalledWith(
       '/v1/sys/organization/dataScope',
-      { authorityId: 9, scope: 'self', departmentIds: [] },
+      {
+        authorityId: 9,
+        scope: 'self',
+        departmentIds: [],
+        expectedRevision: '7',
+      },
+      { headers: { Authorization: 'Bearer token' } },
     );
   });
   it('reads targeted configurations with query ids and normalizes nullable repeated fields', async () => {

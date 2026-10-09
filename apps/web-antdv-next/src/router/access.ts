@@ -3,7 +3,7 @@ import type {
   GenerateMenuAndRoutesOptions,
 } from '@vben/types';
 
-import { generateAccessible } from '@vben/access';
+import { generateAccessibleCandidate } from '@vben/access';
 
 import { message } from 'antdv-next';
 
@@ -14,7 +14,10 @@ import { $t } from '#/locales';
 
 const forbiddenComponent = () => import('#/views/_core/fallback/forbidden.vue');
 
-async function generateAccess(options: GenerateMenuAndRoutesOptions) {
+async function generateAccess(
+  options: GenerateMenuAndRoutesOptions,
+  menuList?: Awaited<ReturnType<typeof getAllMenusApi>>,
+) {
   const pageMap: ComponentRecordType = import.meta.glob('../views/**/*.vue');
 
   const layoutMap: ComponentRecordType = {
@@ -22,14 +25,14 @@ async function generateAccess(options: GenerateMenuAndRoutesOptions) {
     IFrameView,
   };
 
-  return await generateAccessible('mixed', {
+  return await generateAccessibleCandidate('mixed', {
     ...options,
     fetchMenuListAsync: async () => {
       message.loading({
         content: `${$t('common.loadingMenu')}...`,
         duration: 1.5,
       });
-      const menus = await getAllMenusApi();
+      const menus = menuList ?? (await getAllMenusApi());
       assertIndependentMenus(options.routes, menus);
       return menus;
     },

@@ -14,31 +14,68 @@ import {
   TextArea,
 } from 'antdv-next';
 
-import { getAllApis } from '#/api/business/system/api';
+import { savePolicies, savePolicyApiIds } from '#/api/business/system/casbin';
 import {
-  getPolicies,
-  savePolicies,
-  savePolicyApiIds,
-} from '#/api/business/system/casbin';
+  getPermissionEdit,
+  type PermissionEdit,
+} from '#/api/business/system/permissions';
 
 import { confirmAction, refreshRoleAccess } from '../shared';
+import { useEditSession } from '../use-edit-session';
 import {
   parsePolicies,
   permissionChanges,
   policyKey,
   splitPolicies,
 } from './authorization';
+import PermissionConflict from './permission-conflict.vue';
 import PermissionOptions from './permission-options.vue';
+import UnavailableSelections from './unavailable-selections.vue';
 const open = ref(false);
 const loading = ref(false);
 const loaded = ref(false);
 let loadVersion = 0;
 const saving = ref(false);
+const session = useEditSession(open, loaded, saving);
+const revision = ref('');
+const conflict = ref<PermissionEdit>();
+function rebase() {
+  if (!conflict.value) return;
+  const server = conflict.value;
+  session.begin(server.authorityId);
+  revision.value = server.revision;
+  apis.value = server.apis;
+  originalPolicies.value = server.policies.map(policyKey);
+  originalIds.value = splitPolicies(server.policies, server.apis).ids;
+  conflict.value = undefined;
+}
+async function showConflict(ticket: ReturnType<typeof session.capture>) {
+  if (!session.valid(ticket)) return;
+  try {
+    const server = await getPermissionEdit(
+      ticket.objectId,
+      'api',
+      ticket.token,
+    );
+    if (session.valid(ticket) && server.revision !== revision.value)
+      conflict.value = server;
+  } catch {
+    /* Original error already displayed by client. */
+  }
+}
 const roleId = ref(0);
 const title = ref('');
 const mode = ref('ids');
 const apis = ref<ApiResource[]>([]);
 const selected = ref<number[]>([]);
+const unavailableIds = computed(() => {
+  const available = new Set(apis.value.map((api) => api.ID));
+  return selected.value.filter((id) => !available.has(id));
+});
+function removeUnavailable(id: number) {
+  if (!saving.value && !loading.value)
+    selected.value = selected.value.filter((value) => value !== id);
+}
 const originalIds = ref<number[]>([]);
 const originalPolicies = ref<string[]>([]);
 const unknown = ref<Policy[]>([]);
@@ -69,7 +106,11 @@ const pathChanges = computed(() => {
   }
 });
 async function show(id: number, name: string) {
+  const ticket = session.begin(id);
   const version = ++loadVersion;
+  saving.value = false;
+  conflict.value = undefined;
+  revision.value = '';
   roleId.value = id;
   title.value = `${name} · 接口授权`;
   open.value = true;
@@ -83,10 +124,11 @@ async function show(id: number, name: string) {
   text.value = '';
   mode.value = 'ids';
   try {
-    const [all, rules] = await Promise.all([getAllApis(), getPolicies(id)]);
-    if (version !== loadVersion) return;
-    apis.value = all.apiList ?? [];
-    const policies = rules.list ?? [];
+    const snapshot = await getPermissionEdit(id, 'api', ticket.token);
+    if (version !== loadVersion || !session.valid(ticket)) return;
+    revision.value = snapshot.revision;
+    apis.value = snapshot.apis ?? [];
+    const policies = snapshot.policies ?? [];
     const split = splitPolicies(policies, apis.value);
     selected.value = split.ids;
     originalIds.value = [...split.ids];
@@ -96,10 +138,11 @@ async function show(id: number, name: string) {
     if (unknown.value.length) mode.value = 'paths';
     loaded.value = true;
   } finally {
-    if (version === loadVersion) loading.value = false;
+    if (version === loadVersion && session.valid(ticket)) loading.value = false;
   }
 }
 function changeMode(value: unknown) {
+  if (mode.value === 'ids' && unavailableIds.value.length) return;
   if (value === mode.value) return;
   if (value === 'paths') {
     const ids = new Set(selected.value);
@@ -121,21 +164,58 @@ function changeMode(value: unknown) {
   }
   mode.value = String(value);
 }
-async function persist(policies?: Policy[]) {
-  if (!loaded.value || loading.value || saving.value) return;
+async function persist(
+  ticket: ReturnType<typeof session.capture>,
+  ids: number[],
+  policies: Policy[],
+  saveMode: string,
+  expectedRevision: string,
+) {
+  if (!session.valid(ticket)) return;
+  if (
+    !loaded.value ||
+    loading.value ||
+    saving.value ||
+    conflict.value ||
+    (saveMode === 'ids' && unavailableIds.value.length) ||
+    !revision.value
+  )
+    return;
   saving.value = true;
   try {
-    if (mode.value === 'ids')
-      await savePolicyApiIds(roleId.value, selected.value);
-    else await savePolicies(roleId.value, policies ?? []);
+    if (saveMode === 'ids')
+      await savePolicyApiIds(
+        ticket.objectId,
+        ids,
+        expectedRevision,
+        ticket.token,
+      );
+    else
+      await savePolicies(
+        ticket.objectId,
+        policies,
+        expectedRevision,
+        ticket.token,
+      );
+    if (!session.valid(ticket)) return;
+    refreshRoleAccess(ticket.objectId);
     open.value = false;
-    refreshRoleAccess(roleId.value);
+  } catch {
+    await showConflict(ticket);
   } finally {
-    saving.value = false;
+    if (session.valid(ticket)) saving.value = false;
   }
 }
 function save() {
-  if (!loaded.value || loading.value || saving.value) return;
+  if (
+    !loaded.value ||
+    loading.value ||
+    saving.value ||
+    conflict.value ||
+    (mode.value === 'ids' && unavailableIds.value.length) ||
+    !revision.value
+  )
+    return;
   if (mode.value === 'ids' && unknown.value.length) {
     message.warning('存在未登记规则，请使用路径模式保存，避免丢失权限');
     return;
@@ -149,6 +229,12 @@ function save() {
       return;
     }
   }
+  const ticket = session.capture();
+  const ids = [...selected.value];
+  const expectedRevision = revision.value;
+  const saveMode = mode.value;
+  const action = () =>
+    persist(ticket, ids, policies ?? [], saveMode, expectedRevision);
   const changes =
     mode.value === 'ids'
       ? permissionChanges(originalIds.value, selected.value)
@@ -159,10 +245,10 @@ function save() {
   if (changes.total === 0 || changes.removed.length)
     confirmAction(
       changes.total === 0 ? '清空此角色的全部接口权限？' : '确认修改接口授权？',
-      () => persist(policies),
+      action,
       `新增 ${changes.added.length} 项，撤销 ${changes.removed.length} 项，保存后共 ${changes.total} 项。被撤销的接口将无法访问，可能影响菜单加载或业务功能；菜单与按钮授权不会随之修改。`,
     );
-  else void persist(policies);
+  else void action();
 }
 defineExpose({ show });
 </script>
@@ -174,10 +260,24 @@ defineExpose({ show });
     :mask-closable="!saving"
     :closable="!saving"
   >
+    <PermissionConflict
+      :server="conflict"
+      :local="{ apiIds: selected, policies: text }"
+      @rebase="rebase"
+    />
     <Spin :spinning="loading">
+      <UnavailableSelections
+        v-if="mode === 'ids'"
+        :ids="unavailableIds"
+        label="API"
+        :disabled="saving || loading"
+        @remove="removeUnavailable"
+      />
       <Select
         :value="mode"
-        :disabled="saving || loading"
+        :disabled="
+          saving || loading || (mode === 'ids' && unavailableIds.length > 0)
+        "
         :options="[
           { label: '按 API 清单选择', value: 'ids' },
           { label: '按路径和方法（高级）', value: 'paths' },
@@ -249,7 +349,10 @@ defineExpose({ show });
           type="primary"
           :loading="saving"
           :disabled="
-            !loaded || loading || (mode === 'ids' && unknown.length > 0)
+            !loaded ||
+            loading ||
+            (mode === 'ids' &&
+              (unknown.length > 0 || unavailableIds.length > 0))
           "
           @click="save"
         >

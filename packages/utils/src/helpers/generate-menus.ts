@@ -1,4 +1,4 @@
-import type { Router, RouteRecordRaw } from 'vue-router';
+import type { RouteRecordRaw } from 'vue-router';
 
 import type {
   ExRouteRecordRaw,
@@ -16,7 +16,7 @@ import { filterTree, mapTree, sortTree } from '@vben-core/shared/utils';
  */
 function generateMenus(
   routes: RouteRecordRaw[],
-  router: Router,
+  router: { getRoutes: () => Array<{ name?: string | symbol; path: string }> },
 ): MenuRecordRaw[] {
   // 将路由列表转换为一个以 name 为键的对象映射
   const finalRoutesMap: { [key: string]: string } = Object.fromEntries(

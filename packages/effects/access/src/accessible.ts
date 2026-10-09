@@ -18,18 +18,49 @@ import {
   mapTree,
 } from '@vben/utils';
 
-async function generateAccessible(
+async function generateAccessibleCandidate(
   mode: AccessModeType,
   options: GenerateMenuAndRoutesOptions,
 ) {
-  const { router } = options;
-
-  options.routes = cloneDeep(options.routes);
+  options = { ...options, routes: cloneDeep(options.routes) };
 
   // 生成路由
   const accessibleRoutes = await generateRoutes(mode, options);
 
+  // 生成菜单
+  // Compute paths from the candidate tree. The live router may still contain
+  // obsolete paths for a renamed/moved menu and must not be mutated here.
+  const records: Array<{ name?: string | symbol; path: string }> = [];
+  const visit = (routes: RouteRecordRaw[], parent = '') => {
+    for (const route of routes) {
+      const path = route.path.startsWith('/')
+        ? route.path
+        : `${parent}/${route.path}`;
+      records.push({ name: route.name, path });
+      visit(route.children ?? [], path);
+    }
+  };
+  visit(accessibleRoutes);
+  const accessibleMenus = generateMenus(accessibleRoutes, {
+    getRoutes: () => records,
+  });
+
+  return { accessibleMenus, accessibleRoutes };
+}
+
+function commitAccessibleRoutes(
+  router: GenerateMenuAndRoutesOptions['router'],
+  accessibleRoutes: RouteRecordRaw[],
+  previousRoutes: RouteRecordRaw[] = [],
+) {
+  const previousNames = new Set(previousRoutes.map((route) => route.name));
+  for (const route of previousRoutes)
+    if (route.name) router.removeRoute(route.name);
   const root = router.getRoutes().find((item) => item.path === '/');
+  if (root)
+    root.children = root.children.filter(
+      (route) => !previousNames.has(route.name),
+    );
 
   // 获取已有的路由名称列表
   const names = root?.children?.map((item) => item.name) ?? [];
@@ -65,11 +96,14 @@ async function generateAccessible(
     }
     router.addRoute(root);
   }
-
-  // 生成菜单
-  const accessibleMenus = generateMenus(accessibleRoutes, options.router);
-
-  return { accessibleMenus, accessibleRoutes };
+}
+async function generateAccessible(
+  mode: AccessModeType,
+  options: GenerateMenuAndRoutesOptions,
+) {
+  const candidate = await generateAccessibleCandidate(mode, options);
+  commitAccessibleRoutes(options.router, candidate.accessibleRoutes);
+  return candidate;
 }
 
 /**
@@ -237,4 +271,8 @@ function mergeRoutesByName(
   return result;
 }
 
-export { generateAccessible };
+export {
+  commitAccessibleRoutes,
+  generateAccessible,
+  generateAccessibleCandidate,
+};

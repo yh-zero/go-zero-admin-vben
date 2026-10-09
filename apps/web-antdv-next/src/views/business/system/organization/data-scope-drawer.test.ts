@@ -10,10 +10,21 @@ import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 import DataScopeDrawer from './data-scope-drawer.vue';
 
 const mocks = vi.hoisted(() => ({
+  token: { accessToken: 'test-token' },
   getDepartments: vi.fn(),
   getRoleDataScope: vi.fn(),
   updateRoleDataScope: vi.fn(),
   warning: vi.fn(),
+}));
+vi.mock('@vben/stores', () => ({ useAccessStore: () => mocks.token }));
+vi.mock('#/api/business/system/permissions', () => ({
+  getPermissionEdit: async (id: number) => {
+    const [dataScope, departments] = await Promise.all([
+      mocks.getRoleDataScope(id),
+      mocks.getDepartments(),
+    ]);
+    return { revision: '7', authorityId: id, dataScope, departments };
+  },
 }));
 vi.mock('#/api/business/system/organization', () => mocks);
 vi.mock('../shared', () => ({
@@ -164,11 +175,15 @@ describe('role data scope workflow', () => {
     await selectScope('self');
     saveButton().click();
     await flush();
-    expect(mocks.updateRoleDataScope).toHaveBeenCalledExactlyOnceWith({
-      authorityId: 22,
-      scope: 'self',
-      departmentIds: [],
-    });
+    expect(mocks.updateRoleDataScope).toHaveBeenCalledExactlyOnceWith(
+      {
+        authorityId: 22,
+        expectedRevision: '7',
+        scope: 'self',
+        departmentIds: [],
+      },
+      'test-token',
+    );
   });
   it('does not overwrite configuration when reading it fails', async () => {
     mocks.getRoleDataScope.mockRejectedValue(new Error('permission denied'));

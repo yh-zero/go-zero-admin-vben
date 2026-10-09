@@ -6,19 +6,61 @@ import { computed, ref } from 'vue';
 import { Button, Drawer, Space, Spin, Tree } from 'antdv-next';
 
 import { saveAuthorityMenus } from '#/api/business/system/authority';
-import { getAuthorityMenus, getMenuTree } from '#/api/business/system/menu';
 
 import { confirmAction, flattenTree, refreshRoleAccess } from '../shared';
 import { includeMenuParents, permissionChanges } from './authorization';
 const emit = defineEmits<{ saved: [] }>();
+import {
+  getPermissionEdit,
+  type PermissionEdit,
+} from '#/api/business/system/permissions';
+
+import { useEditSession } from '../use-edit-session';
+import PermissionConflict from './permission-conflict.vue';
+import UnavailableSelections from './unavailable-selections.vue';
 const open = ref(false);
 const loading = ref(false);
 const loaded = ref(false);
 let loadVersion = 0;
 const saving = ref(false);
+const session = useEditSession(open, loaded, saving);
+const revision = ref('');
+const conflict = ref<PermissionEdit>();
+function rebase() {
+  if (!conflict.value) return;
+  const server = conflict.value;
+  session.begin(server.authorityId);
+  revision.value = server.revision;
+  original.value = [...server.menuIds];
+  menus.value = server.menus;
+  tree.value = toTree(server.menus);
+  conflict.value = undefined;
+}
+async function showConflict(ticket: ReturnType<typeof session.capture>) {
+  if (!session.valid(ticket)) return;
+  try {
+    const server = await getPermissionEdit(
+      ticket.objectId,
+      'menu',
+      ticket.token,
+    );
+    if (session.valid(ticket) && server.revision !== revision.value)
+      conflict.value = server;
+  } catch {
+    /* Original error already displayed by client. */
+  }
+}
 const roleId = ref(0);
 const title = ref('');
 const menus = ref<Menu[]>([]);
+const unavailableIds = computed(() => {
+  const available = new Set(flattenTree(menus.value).map((menu) => menu.ID));
+  return checked.value.filter((id) => !available.has(id));
+});
+function removeUnavailable(id: number) {
+  if (!saving.value && !loading.value)
+    checked.value = checked.value.filter((value) => value !== id);
+}
 const checked = ref<number[]>([]);
 const original = ref<number[]>([]);
 const changes = computed(() =>
@@ -44,7 +86,11 @@ function toTree(
   }));
 }
 async function show(id: number, name: string) {
+  const ticket = session.begin(id);
   const version = ++loadVersion;
+  saving.value = false;
+  conflict.value = undefined;
+  revision.value = '';
   roleId.value = id;
   title.value = `${name} · 菜单授权`;
   open.value = true;
@@ -55,51 +101,84 @@ async function show(id: number, name: string) {
   checked.value = [];
   original.value = [];
   try {
-    const [all, assigned] = await Promise.all([
-      getMenuTree(),
-      getAuthorityMenus(id),
-    ]);
-    if (version !== loadVersion) return;
-    menus.value = all.list ?? [];
+    const snapshot = await getPermissionEdit(id, 'menu', ticket.token);
+    if (version !== loadVersion || !session.valid(ticket)) return;
+    revision.value = snapshot.revision;
+    menus.value = snapshot.menus ?? [];
     tree.value = toTree(menus.value);
-    checked.value = flattenTree(assigned.list ?? []).map((menu) => menu.ID);
+    checked.value = snapshot.menuIds ?? [];
     original.value = [...checked.value];
     loaded.value = true;
   } finally {
-    if (version === loadVersion) loading.value = false;
+    if (version === loadVersion && session.valid(ticket)) loading.value = false;
   }
 }
 function updateChecked(
   value: Array<number | string> | { checked: Array<number | string> },
 ) {
-  checked.value = (Array.isArray(value) ? value : value.checked).map(Number);
+  checked.value = [
+    ...new Set([
+      ...unavailableIds.value,
+      ...(Array.isArray(value) ? value : value.checked).map(Number),
+    ]),
+  ];
 }
-async function persist() {
-  if (!loaded.value || loading.value || saving.value) return;
+async function persist(
+  ticket: ReturnType<typeof session.capture>,
+  ids: number[],
+  expectedRevision: string,
+) {
+  if (!session.valid(ticket)) return;
+  if (
+    !loaded.value ||
+    loading.value ||
+    saving.value ||
+    conflict.value ||
+    unavailableIds.value.length ||
+    !revision.value
+  )
+    return;
   saving.value = true;
   try {
     await saveAuthorityMenus(
-      roleId.value,
-      includeMenuParents(checked.value, menus.value),
+      ticket.objectId,
+      ids,
+      expectedRevision,
+      ticket.token,
     );
-    open.value = false;
+    if (!session.valid(ticket)) return;
     emit('saved');
-    refreshRoleAccess(roleId.value);
+    refreshRoleAccess(ticket.objectId);
+    open.value = false;
+  } catch {
+    await showConflict(ticket);
   } finally {
-    saving.value = false;
+    if (session.valid(ticket)) saving.value = false;
   }
 }
 function save() {
-  if (!loaded.value || loading.value || saving.value) return;
+  const ticket = session.capture();
+  const ids = includeMenuParents([...checked.value], menus.value);
+  const expectedRevision = revision.value;
+  const action = () => persist(ticket, ids, expectedRevision);
+  if (
+    !loaded.value ||
+    loading.value ||
+    saving.value ||
+    conflict.value ||
+    unavailableIds.value.length ||
+    !revision.value
+  )
+    return;
   if (changes.value.total === 0 || changes.value.removed.length)
     confirmAction(
       changes.value.total === 0
         ? '清空此角色的全部业务菜单？'
         : '确认修改菜单授权？',
-      persist,
+      action,
       `新增 ${changes.value.added.length} 项，撤销 ${changes.value.removed.length} 项，保存后共 ${changes.value.total} 项（含必要父菜单）。撤销菜单会同时清理对应按钮授权；接口权限不会随之修改。`,
     );
-  else void persist();
+  else void action();
 }
 defineExpose({ show });
 </script>
@@ -111,7 +190,18 @@ defineExpose({ show });
     :mask-closable="!saving"
     :closable="!saving"
   >
+    <PermissionConflict
+      :server="conflict"
+      :local="{ menuIds: checked }"
+      @rebase="rebase"
+    />
     <Spin :spinning="loading">
+      <UnavailableSelections
+        :ids="unavailableIds"
+        label="菜单"
+        :disabled="saving || loading"
+        @remove="removeUnavailable"
+      />
       <p class="mb-4 text-sm">
         保存会包含所选菜单的必要父菜单。取消父菜单时，请同时取消不需要的子菜单。
       </p>
@@ -149,7 +239,9 @@ defineExpose({ show });
         <Button
           type="primary"
           :loading="saving"
-          :disabled="!loaded || loading"
+          :disabled="
+            !loaded || loading || !!conflict || unavailableIds.length > 0
+          "
           @click="save"
         >
           保存菜单授权

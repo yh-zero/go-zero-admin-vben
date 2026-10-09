@@ -30,15 +30,20 @@ import {
   refreshRoleAccess,
   usePermission,
 } from '../shared';
+import { useEditSession } from '../use-edit-session';
 import ApiPermissions from './api-permissions.vue';
 import { homeMenuOptions } from './authorization';
 import ButtonPermissions from './button-permissions.vue';
 import MenuPermissions from './menu-permissions.vue';
+import PermissionHistory from './permission-history.vue';
 const can = usePermission('authority');
 const accessStore = useAccessStore();
 const open = ref(false);
 const saving = ref(false);
+const loaded = ref(false);
+const session = useEditSession(open, loaded, saving);
 const editing = ref<Authority>();
+const history = ref<InstanceType<typeof PermissionHistory>>();
 const menus = ref<InstanceType<typeof MenuPermissions>>();
 const buttons = ref<InstanceType<typeof ButtonPermissions>>();
 const apis = ref<InstanceType<typeof ApiPermissions>>();
@@ -111,10 +116,17 @@ const [Grid, grid] = useVbenVxeGrid<Authority>({
   },
 });
 async function showForm(row?: Authority) {
+  const ticket = session.begin(row?.authorityId ?? 0);
+  open.value = true;
+  loaded.value = false;
+  saving.value = false;
   const [all, assigned] = await Promise.all([
-    getAllAuthorities(),
-    row ? getAuthorityMenus(row.authorityId) : Promise.resolve({ list: [] }),
+    getAllAuthorities(ticket.token),
+    row
+      ? getAuthorityMenus(row.authorityId, ticket.token)
+      : Promise.resolve({ list: [] }),
   ]);
+  if (!session.valid(ticket)) return;
   const forbidden = new Set(
     row ? flattenTree([row]).map((role) => role.authorityId) : [],
   );
@@ -130,6 +142,7 @@ async function showForm(row?: Authority) {
   editing.value = row;
   open.value = true;
   await form.reset();
+  if (!session.valid(ticket)) return;
   form.updateSchema([
     {
       fieldName: 'authorityId',
@@ -151,39 +164,50 @@ async function showForm(row?: Authority) {
           defaultRouter: 'index',
         },
   );
+  if (session.valid(ticket)) loaded.value = true;
 }
 async function save() {
-  if (saving.value) return;
+  if (saving.value || !loaded.value) return;
+  const ticket = session.capture();
+  const original = editing.value ? { ...editing.value } : undefined;
   saving.value = true;
   try {
-    if (!(await form.validate()).valid) return;
+    if (!(await form.validate()).valid || !session.valid(ticket)) return;
     const values = await form.getValues();
+    if (!session.valid(ticket)) return;
     const data = {
       authorityId: values.authorityId,
       authorityName: values.authorityName,
       parentId: values.parentId ?? 0,
       defaultRouter: values.defaultRouter ?? '',
     };
-    await (editing.value ? updateAuthority(data) : createAuthority(data));
+    await (original
+      ? updateAuthority(data, ticket.token)
+      : createAuthority(data, ticket.token));
+    if (!session.valid(ticket)) return;
     message.success('保存成功');
     open.value = false;
-    if (editing.value && isCurrentRole(data.authorityId)) {
+    if (original && isCurrentRole(data.authorityId)) {
       updateSessionHome(
         accessStore.accessToken,
         data.authorityId,
         data.defaultRouter,
       );
       refreshRoleAccess(data.authorityId);
-    } else await grid.query();
+    }
+    await grid.query();
   } finally {
-    saving.value = false;
+    if (session.valid(ticket)) saving.value = false;
   }
 }
 function remove(row: Authority) {
+  const ticket = session.capture();
   confirmAction(
     `删除角色 ${row.authorityName}？`,
     async () => {
-      await deleteAuthority(row.authorityId);
+      if (!session.valid(ticket)) return;
+      await deleteAuthority(row.authorityId, ticket.token);
+      if (!session.valid(ticket)) return;
       message.success('已删除');
       await grid.reload();
     },
@@ -242,6 +266,14 @@ function remove(row: Authority) {
             数据范围
           </Button>
           <Button
+            v-if="can('apis')"
+            type="link"
+            size="small"
+            @click="history?.show(row.authorityId, row.authorityName)"
+          >
+            授权历史
+          </Button>
+          <Button
             v-if="can('delete')"
             type="link"
             danger
@@ -257,6 +289,7 @@ function remove(row: Authority) {
       v-model:open="open"
       :title="editing ? '编辑角色' : '新增角色'"
       :confirm-loading="saving"
+      :ok-button-props="{ disabled: !loaded }"
       :force-render="true"
       :mask-closable="false"
       :cancel-button-props="{ disabled: saving }"
@@ -265,6 +298,7 @@ function remove(row: Authority) {
     >
       <Form />
     </Modal>
+    <PermissionHistory ref="history" />
     <MenuPermissions ref="menus" @saved="grid.query()" />
     <ButtonPermissions ref="buttons" />
     <ApiPermissions ref="apis" />

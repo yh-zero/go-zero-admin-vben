@@ -19,12 +19,14 @@ import {
 } from '#/adapter/business/session';
 import { getUserInfoApi, loginApi, logoutApi } from '#/api';
 import { resetRoutes } from '#/router';
+import { resetPermissionRefresh } from '#/router/permission-refresh-events';
 export const useAuthStore = defineStore('auth', () => {
   const accessStore = useAccessStore();
   const userStore = useUserStore();
   const router = useRouter();
   const loginLoading = ref(false);
   function clearSession() {
+    resetPermissionRefresh();
     clearSessionCache();
     resetRoutes();
     resetAllStores();

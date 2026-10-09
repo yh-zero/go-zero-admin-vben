@@ -32,8 +32,10 @@ export interface MenuButton {
   name: string;
   desc: string;
   sysBaseMenuID?: number;
+  permissionKey?: string;
 }
 export interface Menu {
+  movePreviewVersion?: string;
   ID: number;
   parentId: number;
   path: string;

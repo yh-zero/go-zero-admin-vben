@@ -1,6 +1,6 @@
 # 管理后台前端
 
-基于 [vue-vben-admin](https://github.com/vbenjs/vue-vben-admin)，业务应用统一使用 **web-antdv-next**（Vue3、TypeScript、antdv-next），已接入 go-zero-admin 的真实登录、菜单、组织、审计、文件、设备及 AI 接口。当前共 76 个 HTTP 接口，真实契约以配套后端 `.api`、注册路由、类型/逻辑及生成的 Swagger 为准。
+基于 [vue-vben-admin](https://github.com/vbenjs/vue-vben-admin)，业务应用统一使用 **web-antdv-next**（Vue3、TypeScript、antdv-next），已接入 go-zero-admin 的真实登录、菜单、组织、审计、文件、设备及 AI 接口。当前共 84 个 HTTP 接口，真实契约以配套后端 `.api`、注册路由、类型/逻辑及生成的 Swagger 为准。
 
 在线演示：[yh9527.top（HTTPS）](https://yh9527.top) · [IP入口](http://175.178.67.80)。账号 `admin / 123456`，需图片验证码；当前为只读演示，AI 未配置 Key。
 
@@ -77,17 +77,21 @@ pnpm preview
 | POST `/v1/sys/logout` | 撤销该账号所有设备，然后清理 token、资料、路由、按钮和展示缓存 |
 | POST `/v1/sys/register` | 管理员新增用户，JWT与Casbin保护，不作为匿名注册入口 |
 
-当前不提供 refreshToken、独立切换 JWT 角色、找回密码、短信/扫码或匿名注册，`enableRefreshToken` 保持 false。`src/store/auth.ts` 消费真实登录资料和菜单，不恢复不存在的 `/user/info`、`/auth/codes` 调用。刷新通过 `/me` 和当前菜单恢复；用户状态/角色/session_version及设备由后端校验，改密、冻结、删除、角色/归属变化与重置撤销旧会话。
+当前不提供 refreshToken、独立切换 JWT 角色、找回密码、短信/扫码或匿名注册，`enableRefreshToken` 保持 false。`src/store/auth.ts` 消费真实登录资料和权限快照，不恢复不存在的 `/user/info`、`/auth/codes` 调用。资料通过 `/me` 恢复，菜单/按钮/首页通过当前会话 `/v1/sys/permissions/snapshot` 同步；用户状态/角色/session_version及设备由后端校验，改密、冻结、删除、角色/归属变化与重置撤销旧会话。
 
 ### 菜单、按钮与 API 权限
 
-应用固定 mixed 模式，保留原有工作台、分析及组件演示，并追加后端授权业务菜单。业务管理页不额外加入无角色限制的本地示例路由。后端 `GET /v1/sys/menu/getMenu` 返回 `{ menus }`，通过 `adapter/business/menu.ts` 转换 name/path/component/children、隐藏/排序/缓存等；菜单完整路径按父级、重复斜线和大小写判重，路由名称与完整路径全局唯一。
+应用固定 mixed 模式，保留原有工作台、分析及组件演示，并追加后端授权业务菜单。业务管理页不额外加入无角色限制的本地示例路由。后端 `GET /v1/sys/permissions/snapshot` 返回当前会话 `{revision,fingerprint,authorityId,defaultRouter,menus,codes}`，通过 `adapter/business/menu.ts` 转换 name/path/component/children、隐藏/排序/缓存等；菜单完整路径按父级、重复斜线和大小写判重，路由名称与完整路径全局唯一。
 
-当前菜单 `btns` 生成 `菜单name:按钮name` 权限码，`menuBtn` 只是按钮定义，不直接放行。已有按钮/菜单参数保留原 ID/值，删除按钮会清理授权，重命名需同步页面权限码。目标角色授权传其 authorityId，不能固定当前登录角色。
+按钮 `permissionKey` 是创建后稳定的权限码，历史定义回填 `菜单name:按钮name`，快照也兼容当前旧码；`menuBtn` 只是按钮定义，不直接放行。已有按钮/菜单参数保留原 ID/值，删除按钮会清理授权；内置页面依赖的标识受后端保护。目标角色授权传其 authorityId，不能固定当前登录角色。
 
 默认首页存后端菜单 name，转换为当前授权完整路径；无可用菜单显示无权限状态。`/account` 是真实个人中心保留路径，上游 Profile 仍为演示。菜单组件只接受 pages.ts 白名单；拒绝覆盖核心路由、保留路径和外部任意文件。
 
-角色菜单、按钮、API分开保存，搜索/组内全选保留其他分组选择，撤销/清空先确认。API权限使用实际方法和 `/v1/sys/...`、`/v1/ai/...`，不包含代理 `/api`；已有未登记策略不悄然丢弃。修改当前角色后刷新本人权限，修改其他角色只刷新对应数据；默认/关联角色变化需重新登录取得新 JWT，不能仅改前端 authorityId。
+角色菜单、按钮、API和数据范围分开保存，统一编辑快照提供资源、选择和 revision，保存携带 expectedRevision；冲突保留本地并比较最新服务端内容，失效选择显示具体 ID，明确移除后才能保存。搜索/组内全选保留其他分组选择，撤销/清空先确认。API权限使用实际方法和 `/v1/sys/...`、`/v1/ai/...`，不包含代理 `/api`；已有未登记策略不悄然丢弃。按钮/API依赖提示不会自动授权。
+
+导航、窗口焦点和跨标签通知触发权限同步，旧版本/旧登录结果不提交，相同 fingerprint 只推进版本。内容变化同步路由、按钮和首页，清理失效标签及缓存，路径移动保留 query/hash。默认/关联角色变化需重新登录取得新 JWT，不能仅改前端 authorityId。角色/菜单/授权/历史操作绑定 token/对象，真实派发前再次检查固定 token。
+
+菜单改父级先展示影响预览，再提交已绑定版本。角色页授权历史展示四类差异，回滚先预览拒绝原因；后端首版要求无后续配置修改、资源有效且明细完整。新历史/回滚及普通角色编辑能力由管理员明确授予 API 权限；`permissions/edit` 是四类配置统一读取能力。已有数据库必须先完成后端结构迁移及单独管理员恢复步骤，再配套升级前端。
 
 API资源同步只预览并选择新增/说明变更，保留已有 ID 和授权，不自动授予新权限或删除 obsolete。预览版本失效需重新读取再选，不盲重试旧 keys。
 
@@ -97,6 +101,7 @@ API资源同步只预览并选择新增/说明变更，保留已有 ID 和授权
 | --- | --- |
 | `/admin/organization/departments`、positions | departments/positions CRUD；数字状态1/2、编码、父子校验和依赖保护以后端为准 |
 | 用户“归属”、角色“数据范围” | membership、dataScope；原停用关联可保留/移除，新增需启用，读失败禁写；范围为 all/self/department/department_and_children/custom，角色1固定全部 |
+| 用户删除/资源移交 | 删除前 resources 预览；默认软删保留资源和审计，transfer 独立确认来源/目标 ID及文件/AI选择；AI同库配置未满足时明确不可用 |
 | `/admin/audit` | getAuditLogList，分页、类型/结果/操作者/模块/时间过滤，RFC3339时间，白名单详情，只读无删除 |
 | `/admin/files` | list/url/resource/reference，归属ID与引用数按真实契约，不虚构引用明细；引用维护仅角色1，有引用不可删，deleting可重试 |
 | 图片上传 | multipart file_img，PNG/JPEG/GIF/WebP至10MB；visibility默认public、可选private，读取fileImgUrl/fileId；浏览器生成boundary |

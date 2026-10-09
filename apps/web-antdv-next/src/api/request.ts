@@ -14,6 +14,7 @@ import { message } from 'antdv-next';
 import {
   isAuthenticationError,
   isCurrentSessionRequest,
+  StaleSessionResponseError,
 } from '#/adapter/business/session';
 import { useAuthStore } from '#/store';
 const { apiURL } = useAppConfig(import.meta.env, import.meta.env.PROD);
@@ -22,7 +23,13 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   client.addRequestInterceptor({
     fulfilled: async (config) => {
       const token = useAccessStore().accessToken;
-      config.headers.Authorization = token ? 'Bearer ' + token : null;
+      const authorization = token ? 'Bearer ' + token : null;
+      if (
+        config.headers.Authorization !== undefined &&
+        config.headers.Authorization !== authorization
+      )
+        throw new StaleSessionResponseError();
+      config.headers.Authorization = authorization;
       config.headers['Accept-Language'] = preferences.app.locale;
       return config;
     },
@@ -48,7 +55,10 @@ function createRequestClient(baseURL: string, options?: RequestClientOptions) {
   });
   client.addResponseInterceptor(
     errorMessageResponseInterceptor((msg, error) => {
-      if (!isAuthenticationError(error))
+      if (
+        !(error instanceof StaleSessionResponseError) &&
+        !isAuthenticationError(error)
+      )
         message.error(error?.response?.data?.message || msg);
     }),
   );

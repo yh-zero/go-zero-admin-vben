@@ -11,9 +11,26 @@ import MenuPermissions from './menu-permissions.vue';
 
 const mocks = vi.hoisted(() => ({
   getMenuTree: vi.fn(),
+  token: { accessToken: 'test-token' },
+  confirm: vi.fn(),
   getAuthorityMenus: vi.fn(),
   saveAuthorityMenus: vi.fn(),
   refreshRoleAccess: vi.fn(),
+}));
+vi.mock('@vben/stores', () => ({ useAccessStore: () => mocks.token }));
+vi.mock('#/api/business/system/permissions', () => ({
+  getPermissionEdit: async (id: number) => {
+    const [all, assigned] = await Promise.all([
+      mocks.getMenuTree(),
+      mocks.getAuthorityMenus(id),
+    ]);
+    return {
+      revision: '7',
+      authorityId: id,
+      menus: all.list,
+      menuIds: assigned.list.map((menu: Menu) => menu.ID),
+    };
+  },
 }));
 vi.mock('#/api/business/system/menu', () => ({
   getMenuTree: mocks.getMenuTree,
@@ -26,7 +43,8 @@ vi.mock('../shared', () => ({
   flattenTree: (nodes: Menu[]): Menu[] =>
     nodes.flatMap((node) => [node, ...(node.children ?? [])]),
   refreshRoleAccess: mocks.refreshRoleAccess,
-  confirmAction: (_title: string, action: () => Promise<void>) => action(),
+  confirmAction: (_title: string, action: () => Promise<void>) =>
+    mocks.confirm(action),
 }));
 vi.mock('antdv-next', async () => {
   const { defineComponent, h } = await import('vue');
@@ -37,6 +55,7 @@ vi.mock('antdv-next', async () => {
         h('div', [slots.default?.(), slots.footer?.()]),
   });
   return {
+    Alert: panel,
     Drawer: panel,
     Spin: panel,
     Space: panel,
@@ -83,6 +102,8 @@ describe('role menu authorization loading', () => {
   let element: HTMLDivElement;
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.token.accessToken = 'test-token';
+    mocks.confirm.mockImplementation((action) => action());
     mocks.getMenuTree.mockResolvedValue({ list: [menu(1), menu(2)] });
     mocks.saveAuthorityMenus.mockResolvedValue(null);
     element = document.createElement('div');
@@ -120,7 +141,12 @@ describe('role menu authorization loading', () => {
     saveButton().click();
     await Promise.resolve();
     await nextTick();
-    expect(mocks.saveAuthorityMenus).toHaveBeenCalledExactlyOnceWith(22, [2]);
+    expect(mocks.saveAuthorityMenus).toHaveBeenCalledExactlyOnceWith(
+      22,
+      [2],
+      '7',
+      'test-token',
+    );
     expect(mocks.refreshRoleAccess).toHaveBeenCalledExactlyOnceWith(22);
   });
   it('cannot save an empty replacement when loading a role fails', async () => {

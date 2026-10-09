@@ -1,5 +1,8 @@
 import { createPinia, setActivePinia } from 'pinia';
-import { beforeEach, describe, expect, it, vi } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
+
+import { createPermissionRefresh } from '#/adapter/business/permission-runtime';
+import { registerPermissionRefresh } from '#/router/permission-refresh-events';
 
 import { useAuthStore } from './auth';
 
@@ -12,6 +15,8 @@ const mocks = vi.hoisted(() => ({
   warning: vi.fn(),
   clear: vi.fn(),
   publicDemo: false,
+  login: vi.fn(),
+  save: vi.fn(),
 }));
 vi.mock('#/adapter/business/demo', () => ({
   get isPublicDemo() {
@@ -38,13 +43,13 @@ vi.mock('antdv-next', () => ({
 vi.mock('#/api', () => ({
   logoutApi: mocks.logout,
   getUserInfoApi: mocks.getUser,
-  loginApi: vi.fn(),
+  loginApi: mocks.login,
 }));
 vi.mock('#/router', () => ({ resetRoutes: vi.fn() }));
 vi.mock('#/adapter/business/session', () => ({
   clearSessionCache: mocks.clear,
   safeRedirect: () => '/account',
-  saveSession: vi.fn(),
+  saveSession: mocks.save,
   SESSION_HOME: '/_session/home',
   StaleSessionResponseError: class extends Error {},
 }));
@@ -55,6 +60,67 @@ describe('logout and current-user request races', () => {
     vi.clearAllMocks();
     mocks.access.accessToken = 'old-token';
     mocks.publicDemo = false;
+    mocks.access.setAccessToken.mockImplementation((token: string) => {
+      mocks.access.accessToken = token;
+    });
+  });
+  afterEach(() => registerPermissionRefresh(undefined));
+  it('login clears the old refresh epoch before installing the new user session', async () => {
+    let finish!: (value: { revision: string; fingerprint: string }) => void;
+    const commit = vi.fn();
+    const coordinator = createPermissionRefresh({
+      token: () => mocks.access.accessToken,
+      load: () =>
+        new Promise<{ revision: string; fingerprint: string }>((resolve) => {
+          finish = resolve;
+        }),
+      build: async (snapshot) => snapshot,
+      commit,
+    });
+    registerPermissionRefresh({
+      refresh: () => coordinator.refresh(),
+      reset: () => coordinator.reset(),
+      repair: vi.fn(),
+    });
+    const pending = coordinator.refresh();
+    const newUser = {
+      roles: ['22'],
+      realName: 'New role user',
+      homePath: '/account',
+    };
+    mocks.login.mockResolvedValue({ accessToken: 'new-token' });
+    mocks.save.mockReturnValue(newUser);
+    await useAuthStore().authLogin({ username: 'new-user', password: 'pass' });
+    finish({ revision: '99999999999999999', fingerprint: 'old' });
+    await pending;
+    expect(commit).not.toHaveBeenCalled();
+    expect(mocks.access.accessToken).toBe('new-token');
+    expect(mocks.user.setUserInfo).toHaveBeenCalledWith(newUser);
+    expect(mocks.replace).toHaveBeenCalledWith('/account');
+  });
+  it('clearSession invalidates pending refresh even if the identical token is restored', async () => {
+    let finish!: (value: { revision: string; fingerprint: string }) => void;
+    const commit = vi.fn();
+    const coordinator = createPermissionRefresh({
+      token: () => mocks.access.accessToken,
+      load: () =>
+        new Promise<{ revision: string; fingerprint: string }>((resolve) => {
+          finish = resolve;
+        }),
+      build: async (snapshot) => snapshot,
+      commit,
+    });
+    registerPermissionRefresh({
+      refresh: () => coordinator.refresh(),
+      reset: () => coordinator.reset(),
+      repair: vi.fn(),
+    });
+    const pending = coordinator.refresh();
+    useAuthStore().clearSession();
+    mocks.access.accessToken = 'old-token';
+    finish({ revision: '7', fingerprint: 'old' });
+    await pending;
+    expect(commit).not.toHaveBeenCalled();
   });
   it('only clears the current browser in public demo mode', async () => {
     mocks.publicDemo = true;

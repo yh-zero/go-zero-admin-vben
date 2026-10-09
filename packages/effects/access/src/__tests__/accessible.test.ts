@@ -1,8 +1,59 @@
 import type { RouteRecordRaw } from '@vben/types';
 
-import { describe, expect, it } from 'vitest';
+import { describe, expect, it, vi } from 'vitest';
 
-import { generateAccessible } from '../accessible';
+import {
+  commitAccessibleRoutes,
+  generateAccessible,
+  generateAccessibleCandidate,
+} from '../accessible';
+
+describe('pure permission route candidates', () => {
+  it('does not write router while computing candidate and uses changed candidate paths', async () => {
+    const router = {
+      getRoutes: () => [{ name: 'Menu', path: '/old' }],
+      addRoute: vi.fn(),
+      removeRoute: vi.fn(),
+    } as any;
+    const routes = [
+      {
+        name: 'Menu',
+        path: '/new',
+        meta: { title: 'Menu' },
+        children: [{ name: 'Child', path: 'child', meta: { title: 'Child' } }],
+      },
+    ] as RouteRecordRaw[];
+    const candidate = await generateAccessibleCandidate('frontend', {
+      router,
+      routes,
+    });
+    expect(router.addRoute).not.toHaveBeenCalled();
+    expect(router.removeRoute).not.toHaveBeenCalled();
+    expect(candidate.accessibleMenus[0]?.path).toBe('/new');
+    expect(candidate.accessibleMenus[0]?.children?.[0]?.path).toBe(
+      '/new/child',
+    );
+    expect(routes[0]?.redirect).toBeUndefined();
+  });
+  it('removes revoked root children instead of resurrecting them during commit', () => {
+    const root = {
+      name: 'Root',
+      path: '/',
+      children: [{ name: 'Revoked', path: '/revoked' }],
+    };
+    const router = {
+      getRoutes: () => [root],
+      addRoute: vi.fn(),
+      removeRoute: vi.fn(),
+    } as any;
+    commitAccessibleRoutes(
+      router,
+      [{ name: 'New', path: '/new' }] as RouteRecordRaw[],
+      [{ name: 'Revoked', path: '/revoked' }] as RouteRecordRaw[],
+    );
+    expect(root.children.map((route) => route.name)).toEqual(['New']);
+  });
+});
 
 // generateAccessible 会操作传入的 router 实例。这里用最小 stub 覆盖它实际调用的方法：
 // - getRoutes(): 返回 [] -> 不存在根路由 '/', 走 router.addRoute 分支

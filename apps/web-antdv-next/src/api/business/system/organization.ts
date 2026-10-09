@@ -1,3 +1,4 @@
+import { sessionRequestOptions } from '#/adapter/business/request-session';
 import { requestClient } from '#/api/request';
 
 export interface Department {
@@ -36,6 +37,8 @@ export interface RoleDataScope {
   authorityId: number;
   scope: DataScope;
   departmentIds: number[];
+  revision?: string;
+  expectedRevision?: string;
 }
 const base = '/v1/sys/organization';
 
@@ -83,5 +86,5 @@ export async function getRoleDataScope(
   });
   return { ...result, departmentIds: result.departmentIds ?? [] };
 }
-export const updateRoleDataScope = (data: RoleDataScope) =>
-  requestClient.put(`${base}/dataScope`, data);
+export const updateRoleDataScope = (data: RoleDataScope, token?: string) =>
+  requestClient.put(`${base}/dataScope`, data, sessionRequestOptions(token));
