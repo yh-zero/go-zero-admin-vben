@@ -2,6 +2,16 @@
 // value is the component identifier stored by the backend; component is a Vben view path.
 export const businessPages = [
   {
+    label: 'App 用户',
+    value: 'views/business/app-members/users.vue',
+    component: '/business/app-members/users.vue',
+  },
+  {
+    label: 'App VIP 会员',
+    value: 'views/business/app-members/memberships.vue',
+    component: '/business/app-members/memberships.vue',
+  },
+  {
     label: 'AI Agent',
     value: 'views/business/ai-agent/index.vue',
     component: '/business/ai-agent/index.vue',

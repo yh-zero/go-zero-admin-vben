@@ -34,9 +34,10 @@ function log_message() {
         >&2 echo "ERROR: ${ERROR}"
         exit 1
     else
-        echo "docker image with tag '${IMAGE_NAME}' built sussessfully. Use below sample command to run the container"
+        echo "docker image with tag '${IMAGE_NAME}' built successfully."
         echo ""
-        echo "docker run -d -p 8010:8080 --name ${IMAGE_NAME} ${IMAGE_NAME}"
+        echo "Run the frontend with the backend's docker/deploy-compose.yml."
+        echo "Its /api proxy requires the Compose network's api service."
     fi
 }
 

@@ -1,38 +1,42 @@
+# syntax=docker/dockerfile:1
+
 FROM node:22-slim AS builder
 
-# --max-old-space-size
-ENV PNPM_HOME="/pnpm"
-ENV PATH="$PNPM_HOME:$PATH"
-ENV NODE_OPTIONS=--max-old-space-size=8192
-ENV TZ=Asia/Shanghai
-ENV CI=true
+ENV PNPM_HOME="/pnpm" \
+    PATH="/pnpm:$PATH" \
+    NODE_OPTIONS="--max-old-space-size=8192" \
+    TZ="Asia/Shanghai" \
+    CI="true"
 
-RUN npm i -g corepack
+RUN npm install --global corepack && corepack enable
 
 WORKDIR /app
+COPY . .
 
-# copy package.json and pnpm-lock.yaml to workspace
-COPY . /app
+# Corepack reads the pinned pnpm version from package.json.
+RUN --mount=type=cache,id=pnpm,target=/pnpm/store \
+    corepack pnpm install --frozen-lockfile --store-dir /pnpm/store
 
-# 安装依赖
-RUN --mount=type=cache,id=pnpm,target=/pnpm/store pnpm install --frozen-lockfile
-RUN pnpm run build:antdv-next
+ARG VITE_GLOB_API_URL=/api
+ARG VITE_BASE=/
 
-RUN echo "Builder Success 🎉"
+ENV VITE_GLOB_API_URL="${VITE_GLOB_API_URL}" \
+    VITE_BASE="${VITE_BASE}"
+
+# Loose mode passes the Docker build arguments through Turbo to Vite.
+# Force prevents a cached build from reusing different API or base paths.
+RUN corepack pnpm run build:antdv-next --force --env-mode=loose
 
 FROM nginx:stable-alpine AS production
 
-# 配置 nginx
-RUN echo "types { application/javascript js mjs; }" > /etc/nginx/conf.d/mjs.conf \
-    && rm -rf /etc/nginx/conf.d/default.conf
+RUN rm /etc/nginx/conf.d/default.conf
 
-# 复制构建产物
 COPY --from=builder /app/apps/web-antdv-next/dist /usr/share/nginx/html
-
-# 复制 nginx 配置
-COPY --from=builder /app/scripts/deploy/nginx.conf /etc/nginx/nginx.conf
+COPY scripts/deploy/nginx.conf /etc/nginx/nginx.conf
 
 EXPOSE 8080
 
-# 启动 nginx
+HEALTHCHECK --interval=30s --timeout=3s --start-period=5s --retries=3 \
+    CMD wget -q -O /dev/null http://127.0.0.1:8080/healthz || exit 1
+
 CMD ["nginx", "-g", "daemon off;"]

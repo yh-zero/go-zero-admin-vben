@@ -1,21 +1,29 @@
 # 管理后台前端
 
-基于 [vue-vben-admin](https://github.com/vbenjs/vue-vben-admin)，业务应用统一使用 **web-antdv-next**（Vue3、TypeScript、antdv-next），已接入 go-zero-admin 的真实登录、菜单、组织、审计、文件、设备及 AI 接口。当前共 84 个 HTTP 接口，真实契约以配套后端 `.api`、注册路由、类型/逻辑及生成的 Swagger 为准。
-
-在线演示：[yh9527.top（HTTPS）](https://yh9527.top) · [IP入口](http://175.178.67.80)。账号 `admin / 123456`，需图片验证码；当前为只读演示，AI 未配置 Key。
+基于 [vue-vben-admin](https://github.com/vbenjs/vue-vben-admin)，业务应用统一使用 **web-antdv-next**（Vue3、TypeScript、antdv-next），已接入 go-zero-admin 的真实登录、菜单、组织、审计、文件、设备、AI 及 App 用户/会员管理接口。配套后端现有 92 个管理 HTTP 接口（App 管理新增 8 个），另有独立的 12 个 App 接口；真实契约以配套后端 `.api`、注册路由、类型/逻辑及生成的 Swagger 为准。
 
 ## 本地开发与启动
 
-在仓库根目录安装依赖；保留 `packages/`、`internal/` 与脚本，应用通过 `workspace:*` 使用这些源码，不能只复制一个 apps 目录运行。Node 要求 `^22.18.0 || ^24.12.0`，pnpm 按 `packageManager` 固定为 `11.16.0`，以实际 package.json 为准。
+需要 Docker 与支持 `--wait` 的 Docker Compose v2，以及 Node.js `^22.18.0 || ^24.12.0`。pnpm 按 `packageManager` 固定为 `11.16.0`，以实际 package.json 为准；开始前确认本机 `node --version`、`pnpm --version` 可用且符合版本要求。
+
+先从本前端仓库根目录进入同级后端仓库，构建并启动完整后端：
 
 ```sh
+cd ../go-zero-admin
+docker compose up -d --build --wait
+```
+
+再回到前端仓库根目录安装依赖并启动。保留 `packages/`、`internal/` 与脚本，应用通过 `workspace:*` 使用这些源码，不能只复制一个 apps 目录运行。
+
+```sh
+cd ../go-zero-admin-vben
 pnpm install --frozen-lockfile
 pnpm dev
 ```
 
-默认地址为 [http://127.0.0.1:5999](http://127.0.0.1:5999)，端口占用时以 Vite 输出为准。先在配套后端启动依赖、完成迁移并启动业务 RPC6001、AI RPC6002、API7001；本机后端托管入口为 `test/sh/dev.ps1 -Action Start/Restart/Status/Stop`。依赖和数据库启动不等于后端服务已启动，完整步骤见 [后端 README](https://github.com/yh-zero/go-zero-admin/blob/HEAD/README.md#本地开发启动)。
+前端默认地址为 [http://127.0.0.1:5999](http://127.0.0.1:5999)，端口占用时以 Vite 输出为准。后端 API 为 [http://127.0.0.1:7001](http://127.0.0.1:7001)，Swagger UI 为 [http://127.0.0.1:7000](http://127.0.0.1:7000)；业务 RPC6001、AI RPC6002 仅在容器网络内使用。根 Compose 会自动初始化新 MySQL 数据卷；已有库须停止后端写服务，通过 MySQL 客户端备份核验并按顺序手工执行未应用迁移，不重放全量初始化 SQL，步骤见 [后端数据库升级](https://github.com/yh-zero/go-zero-admin/blob/HEAD/README.md#数据库升级)。
 
-本地开发账号与初始密码见后端 README；已有库以实际凭据为准。登录始终使用当前图片验证码，失败重新取图，不使用固定验证码或开发请求头。前端停止使用启动终端的 Ctrl+C，再次启动前核对实际端口。开发日志与已有运行清单位于 `.temp/dev/`，不以历史 PID 作为停止依据。
+本地开发账号与初始密码见后端 README；已有库以实际凭据为准。登录始终使用当前图片验证码，失败重新取图，不使用固定验证码或开发请求头。前端停止使用启动终端的 Ctrl+C，再次启动前核对实际端口。在后端仓库执行 `docker compose logs -f api rpc ai-rpc` 查看服务日志；`docker compose down` 停止后端并保留数据，添加 `-v` 会删除数据库卷。
 
 ### 环境与代理
 
@@ -26,15 +34,11 @@ VITE_GLOB_API_URL=/api
 VITE_NITRO_MOCK=false
 ```
 
-Vite `/api` 代理至 `http://127.0.0.1:7001`，去掉 `/api` 后保留 `/v1/sys` 或 `/v1/ai`。接口函数写完整后端路径，例如 `/v1/sys/menu/getMenu`；不要重复添加 baseURL 或改回 Mock `/api`。
+Vite `/api` 代理至 `http://127.0.0.1:7001`，去掉 `/api` 后保留 `/v1/sys`、`/v1/ai` 或 `/v1/app`。接口函数写完整后端路径，例如 `/v1/sys/menu/getMenu`；不要重复添加 baseURL 或改回 Mock `/api`。
 
-修改环境或代理后重启前端。生产静态产物不包含 Vite 代理；若沿用 `/api`，由 Nginx 等服务去掉该前缀并转发到后端。后端容器/远程主机按实际网络使用可达地址。当前默认 hash 路由，改为 history 时另配置回退至 index.html；部署方法见 [后端部署说明](https://github.com/yh-zero/go-zero-admin/blob/HEAD/docker/部署说明.md)。
+修改环境或代理后重启前端。生产使用后端 `docker/deploy-compose.yml` 的 `web` 服务：在 Docker 中构建本前端完整工作区，使用 `scripts/deploy/Dockerfile` 的 `production` 目标，无需宿主 Node 或 pnpm。默认 `FRONTEND_CONTEXT=../../go-zero-admin-vben` 相对后端 `docker/`；目录不同时通过后端 `docker/.env.deploy` 覆盖。页面默认 `127.0.0.1:8080`，Nginx 将 `/api/` 转发到同一 Compose 网络的 `api:7001/` 并去掉前缀，提供 `/healthz` 和静态路由回退。对外 HTTPS 由服务器入口转发到本机 `8080`，域名和证书按实际入口配置。当前默认 hash 路由。服务器先启动依赖并手动向空库导入 SQL，再在后端根目录运行 `docker compose --env-file docker/.env.deploy -f docker/deploy-compose.yml up -d --build --wait rpc ai-rpc api web`；完整首次部署和升级步骤见 [后端部署说明](https://github.com/yh-zero/go-zero-admin/blob/HEAD/docker/部署说明.md)。
 
 模型 Key 仅在后端 AI 进程配置；JWT 密钥、数据库/OSS/SMTP密码、模型 Key 均不进入前端或 `VITE_*`。前端既不连接 RPC，也不直接访问数据库、Redis或对象存储管理凭据。
-
-公开参考站点可在构建时设置 `VITE_PUBLIC_DEMO=true`，默认关闭。演示登录页显示公开账号 `admin / 123456` 和只读说明，个人中心隐藏改密及设备列表，退出仅清除当前浏览器状态，避免共享账号的服务器退出让其他访客掉线。已有令牌仍由后端到期或管理员撤销，应给演示账号配置较短有效期。修改此标记需要重新构建；它只影响界面，后端和反向代理必须另行禁止写操作、注册、设备/审计隐私查询，不给演示角色变更按钮权限。模型模块可以保留并停用，不配置 Key。用户名不决定权限，公开 `admin` 使用普通只读角色，私有维护账号另行配置。
-
-2026-10-04 已验证云端 HTTPS、正常验证码登录、业务读取和禁止写入。完整部署、升级及快速恢复见 [后端部署说明](https://github.com/yh-zero/go-zero-admin/blob/HEAD/docker/部署说明.md) 和 [快速恢复文档](https://github.com/yh-zero/go-zero-admin/blob/HEAD/QUICK_RECOVERY.md)。
 
 ## 检查与构建
 
@@ -45,7 +49,7 @@ pnpm build
 pnpm preview
 ```
 
-提交前按变更范围运行 `pnpm lint`；共享包/框架改动另做全工作区类型检查。构建产物为 `apps/web-antdv-next/dist`，`pnpm build:docker` 使用 `scripts/deploy/Dockerfile`。保留锁文件，不以删除锁文件或全量升级依赖处理安装错误。
+提交前按变更范围运行 `pnpm lint`；共享包/框架改动另做全工作区类型检查。构建产物为 `apps/web-antdv-next/dist`，本地 `pnpm build:docker` 使用 `scripts/deploy/Dockerfile` 且仅构建镜像。生产镜像内的 Nginx 依赖后端 Compose 网络中的 `api` 服务名，通过后端 `docker/deploy-compose.yml` 的 `web` 服务运行。生产 Compose 会直接在 Docker 内安装锁定依赖并构建，无需先在宿主执行 `pnpm build`。保留锁文件，不以删除锁文件或全量升级依赖处理安装错误。
 
 ## 业务目录与接入流程
 
@@ -58,7 +62,7 @@ pnpm preview
 3. 新建业务页面与编辑弹窗/授权抽屉，不覆盖上游 dashboard、demos、_core 页面。提交时禁用重复操作；成功后重新读服务端结果，失败保留重试入口。
 4. 在 `adapter/business/pages.ts` 单处登记菜单组件，菜单编辑选项与动态路由共用白名单；保留旧 component 值的兼容映射，未知组件显示“尚未接入”。
 5. 分别配置菜单、按钮、API权限；一个保存只更新其所属授权。确认非法ID、空数据、字段清空/零值、重复保存、普通角色拒绝及旧响应隔离。
-6. 契约变化同步后端定义、生成代码、实现、前端类型及 Swagger。后端先用 `test/sh/swagger.ps1` 生成，再构建 RPC/API，因为 API 同步读取编译时嵌入的文档；不手工维护另一份 Swagger。
+6. 契约变化同步后端定义、生成代码、实现、前端类型及 Swagger。后端在仓库根目录先执行 `powershell -NoProfile -ExecutionPolicy Bypass -File data/scripts/gen.ps1 swagger` 生成，再构建 RPC/API，因为 API 同步读取编译时嵌入的文档；不手工维护另一份 Swagger。
 
 业务文案放独立 business 多语言资源。应用品牌、首页和权限偏好使用应用 `src/preferences.ts`，尽量通过属性、插槽、适配器扩展；偏好有浏览器缓存，改默认值后清理对应缓存再验。只有实际重复才抽公共组件，不引入多层 CRUD 基类。
 
@@ -77,7 +81,7 @@ pnpm preview
 | POST `/v1/sys/logout` | 撤销该账号所有设备，然后清理 token、资料、路由、按钮和展示缓存 |
 | POST `/v1/sys/register` | 管理员新增用户，JWT与Casbin保护，不作为匿名注册入口 |
 
-当前不提供 refreshToken、独立切换 JWT 角色、找回密码、短信/扫码或匿名注册，`enableRefreshToken` 保持 false。`src/store/auth.ts` 消费真实登录资料和权限快照，不恢复不存在的 `/user/info`、`/auth/codes` 调用。资料通过 `/me` 恢复，菜单/按钮/首页通过当前会话 `/v1/sys/permissions/snapshot` 同步；用户状态/角色/session_version及设备由后端校验，改密、冻结、删除、角色/归属变化与重置撤销旧会话。
+管理后台登录不提供 refreshToken、独立切换 JWT 角色、找回密码、短信/扫码或匿名注册，`enableRefreshToken` 保持 false。`src/store/auth.ts` 消费真实登录资料和权限快照，不恢复不存在的 `/user/info`、`/auth/codes` 调用。资料通过 `/me` 恢复，菜单/按钮/首页通过当前会话 `/v1/sys/permissions/snapshot` 同步；用户状态/角色/session_version及设备由后端校验，改密、冻结、删除、角色/归属变化与重置撤销旧会话。App 的注册与刷新接口使用另一套身份和令牌，不能接入此管理员登录状态。
 
 ### 菜单、按钮与 API 权限
 
@@ -111,9 +115,28 @@ API资源同步只预览并选择新增/说明变更，保留已有 ID 和授权
 
 前端不自行决定 owner/dept 或数据范围。用户编辑保留“未传不更新、明确空值清空”，角色 parentId=0、字典 value/sort=0 使用真实字段约定；组织归属真实变化会撤销旧会话。五类数据范围当前用于文件，旧用户等管理接口仍按自身权限处理，不能暗示已覆盖所有业务。
 
+## App 用户与会员管理
+
+管理页面位于 `src/views/business/app-members/`，请求集中在 `src/api/business/app-members.ts`，由 `adapter/business/pages.ts` 注册，继续使用当前管理员登录和权限。App 用户保存在独立的五张 App 表中，不进入后台 `sys_users` 列表。
+
+| 页面 | 功能与权限 |
+| --- | --- |
+| `app-members/users`（菜单名 `app-members-users`） | 搜索/筛选 App 用户，审核通过或拒绝、禁用或恢复，查看和撤销设备；按钮码为 `app-members-users:review`、`:status`、`:revoke-session` |
+| `app-members/memberships`（菜单名 `app-memberships`） | 查询会员记录、人工开通或续期、撤销指定授予；按钮码为 `app-memberships:grant`、`:revoke` |
+
+App 通过邮箱或手机号加密码注册后进入待审核状态，审核通过才可登录；VIP 必须另外开通。用户页面展示后端记录的注册 IP 与归属地；归属地由后端 ip2region 离线库查询，容器实际查询已验证，旧账号不补猜历史位置。审核显示邮箱是否经过验证码验证，手机号提示人工核实。邮箱验证码复用后端现有 Mail 模块，同一 IP、同一邮箱每天各最多请求 5 次，按 `Asia/Shanghai` 自然日计数；默认允许不提交验证码，后端设 `APP_EMAIL_VERIFICATION_REQUIRED=true` 后邮箱注册必须验证，账号仍需审核。SMTP 仅由业务 RPC 使用，真实投递需以实际 SMTP 配置验收。
+
+会员首版提供 `vip` 方案和 `profile.export` 本人资料导出权益。每次开通/续期保留独立记录和权益快照；结果未知的重试保留原 `requestId`，撤销只影响指定记录。禁用账号撤销全部 App 会话，恢复后需要重新登录；会员有效期继续按自然时间计算。
+
+新库安装会给角色 1 配置入口；已有库依次应用 `20261019_app_members.sql`、`20261019_app_registration_ip.sql`（只执行未登记项），再按需执行 `data/db/operator/20261019_app_member_admin_bootstrap.sql`，或通过权限编辑器明确授予菜单、按钮和接口。第二份迁移独立增加注册 IP/归属地，已应用的旧迁移及校验和不改写。资源存在不代表角色已获授权，前端按钮可见也不能代替后端 API 校验。
+
+本仓库提供管理页面，App 客户端另行实现。App API 文档为 [http://127.0.0.1:7000/?audience=app](http://127.0.0.1:7000/?audience=app)，使用独立 App JWT、默认 15 分钟访问令牌及 30 天轮换刷新令牌。不要复用后台 `auth` store 或把后台令牌用于 App 接口。通过代理测试 App 注册/验证码时，后端 `APP_TRUSTED_PROXY_CIDRS` 优先只填写实际代理容器的单个 IP（IPv4 `/32`、IPv6 `/128`），不信任整个 Docker 子网、宿主/NAT 网关或客户端地址范围；代理容器重建后须重新检查 IP。空值忽略转发头，会按代理 IP 共用限额，容器 IP 查询步骤见后端部署说明。本地前端仍为 `pnpm dev`，生产前后端仍由 Docker 构建启动。
+
+2026-10-20：追加 IP 字段前的完整单测为 128 个文件/842 项通过；追加后相关 28 项测试、类型检查及 `pnpm build`（11/11 任务）通过。App Swagger 已在浏览器实际打开，审核、会员和会话接口的真实 HTTP 闭环通过；管理页面尚未完成图片验证码登录后的实际审核/VIP 点击验收，不能以 HTTP 测试替代页面验收。真实 SMTP 未配置，也未外发验证邮件。
+
 ## AI 助手
 
-AI 页面为 `src/views/business/ai-agent/index.vue`，请求为 `api/business/ai-agent.ts`，菜单 name 为 ai-agent，提交/停止按钮为 `ai-agent:run` / `ai-agent:cancel`。前端仍经 API7001 调用，内部 AI RPC6002不直接连接。普通模型配置在后端 `application/ai/rpc/etc/ai.yaml`，Key在后端 `.env.local`；Docker使用后端 AI YAML模板与部署环境文件，细节见 [后端 AI 配置](https://github.com/yh-zero/go-zero-admin/blob/HEAD/README.md#ai-agent-本机配置)。
+AI 页面为 `src/views/business/ai-agent/index.vue`，请求为 `api/business/ai-agent.ts`，菜单 name 为 ai-agent，提交/停止按钮为 `ai-agent:run` / `ai-agent:cancel`。前端仍经 API7001 调用，内部 AI RPC6002 不直接连接。后端容器读取 `docker/*.yaml.template`，不读取 `application/` 下 `etc/` 目录中的本机 YAML；AI 模型参数使用 `docker/ai-rpc.yaml.template`。该模板默认 `AI.Enabled: false`，根 Compose 向 AI RPC 传入空 Key，因此无需模型 Key 即可启动。启用模型时须配置容器模板，并在 Compose 中显式向 AI RPC 注入对应 Key；本机 `.env.local` 或 `setx` 不会自动改变当前容器配置，细节见 [后端 AI 配置](https://github.com/yh-zero/go-zero-admin/blob/HEAD/README.md#ai-助手)。
 
 | HTTP | 用途 |
 | --- | --- |

@@ -6,7 +6,6 @@ import { computed, markRaw, onMounted, ref } from 'vue';
 
 import { AuthenticationLogin, z } from '@vben/common-ui';
 
-import { isPublicDemo } from '#/adapter/business/demo';
 import { getCaptchaApi } from '#/api/core/auth';
 import ImageCaptcha from '#/components/business/image-captcha.vue';
 import { useAuthStore } from '#/store';
@@ -66,7 +65,13 @@ const formSchema = computed((): VbenFormSchema[] => [
 ]);
 
 async function submit(values: Recordable<any>) {
-  if (captchaLoading.value || !image.value || !captchaId.value || authStore.loginLoading) return;
+  if (
+    captchaLoading.value ||
+    !image.value ||
+    !captchaId.value ||
+    authStore.loginLoading
+  )
+    return;
   try {
     await authStore.authLogin({ ...values, captchaId: captchaId.value });
   } catch {
@@ -87,12 +92,8 @@ onMounted(refreshCaptcha);
     :show-register="false"
     :show-third-party-login="false"
     :show-remember-me="false"
-    :title="isPublicDemo ? '开源只读演示' : '登录管理后台'"
-    :sub-title="
-      isPublicDemo
-        ? '演示账号：admin / 123456。仅供浏览，不开放修改。'
-        : '使用后端账号登录'
-    "
+    title="登录管理后台"
+    sub-title="使用后端账号登录"
     @submit="submit"
   />
 </template>

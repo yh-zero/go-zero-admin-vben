@@ -14,14 +14,8 @@ const mocks = vi.hoisted(() => ({
   replace: vi.fn(),
   warning: vi.fn(),
   clear: vi.fn(),
-  publicDemo: false,
   login: vi.fn(),
   save: vi.fn(),
-}));
-vi.mock('#/adapter/business/demo', () => ({
-  get isPublicDemo() {
-    return mocks.publicDemo;
-  },
 }));
 vi.mock('vue-router', () => ({
   useRouter: () => ({
@@ -59,7 +53,6 @@ describe('logout and current-user request races', () => {
     setActivePinia(createPinia());
     vi.clearAllMocks();
     mocks.access.accessToken = 'old-token';
-    mocks.publicDemo = false;
     mocks.access.setAccessToken.mockImplementation((token: string) => {
       mocks.access.accessToken = token;
     });
@@ -122,10 +115,9 @@ describe('logout and current-user request races', () => {
     await pending;
     expect(commit).not.toHaveBeenCalled();
   });
-  it('only clears the current browser in public demo mode', async () => {
-    mocks.publicDemo = true;
+  it('revokes the current token and clears the browser session on logout', async () => {
     await useAuthStore().logout();
-    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(mocks.logout).toHaveBeenCalledExactlyOnceWith('old-token');
     expect(mocks.access.accessToken).toBe('');
     expect(mocks.clear).toHaveBeenCalledOnce();
     expect(mocks.replace).toHaveBeenCalledOnce();
@@ -160,6 +152,16 @@ describe('logout and current-user request races', () => {
     expect(mocks.logout).not.toHaveBeenCalled();
     expect(mocks.access.accessToken).toBe('');
   });
+  it('clears the browser session without revoking when no token exists', async () => {
+    mocks.access.accessToken = '';
+    await useAuthStore().logout(false);
+    expect(mocks.logout).not.toHaveBeenCalled();
+    expect(mocks.clear).toHaveBeenCalledOnce();
+    expect(mocks.replace).toHaveBeenCalledExactlyOnceWith({
+      path: '/auth/login',
+      query: {},
+    });
+  });
   it('does not update the store with a previous login user response', async () => {
     let finish!: (value: object) => void;
     mocks.getUser.mockImplementationOnce(
@@ -171,7 +173,7 @@ describe('logout and current-user request races', () => {
     const pending = useAuthStore().fetchUserInfo();
     mocks.access.accessToken = 'new-token';
     finish({ username: 'previous-user' });
-    await expect(pending).rejects.toThrow();
+    await expect(pending).rejects.toThrow(Error);
     expect(mocks.user.setUserInfo).not.toHaveBeenCalled();
   });
 });
