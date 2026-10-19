@@ -45,7 +45,7 @@ pnpm build
 pnpm preview
 ```
 
-提交前按变更范围运行 `pnpm lint`；共享包/框架改动另做全工作区类型检查。构建产物为 `apps/web-antdv-next/dist`，`pnpm build:docker` 使用 `scripts/deploy/Dockerfile`。保留锁文件，不以删除锁文件或全量升级依赖处理安装错误。单元测试和构建不能代替真实登录、OSS/SMTP、云模型及生产验收，剩余工作见 [前端后续开发计划](FRONTEND_DEVELOPMENT_PLAN.md)。
+提交前按变更范围运行 `pnpm lint`；共享包/框架改动另做全工作区类型检查。构建产物为 `apps/web-antdv-next/dist`，`pnpm build:docker` 使用 `scripts/deploy/Dockerfile`。保留锁文件，不以删除锁文件或全量升级依赖处理安装错误。
 
 ## 业务目录与接入流程
 
@@ -135,8 +135,6 @@ AI 页面为 `src/views/business/ai-agent/index.vue`，请求为 `api/business/a
 - 仅queued/running且有权限显示停止；重复停止合并，POST后再GET服务器实际状态。查询失败解除等待，保留最后已知状态，允许重新查询或幂等停止。
 - 历史每页20条，页码越大越早，页内sequence正序，同轮user在assistant前。最近消息runId恢复最新任务，不依赖时间/UUID排序；恢复失败阻止发送，可回第一页重读。最新任务未知时旧任务不可被重新查询或停止。
 - 状态为 queued/running/succeeded/failed/cancelled/interrupted；权限、登录和数据范围由后端每次执行重新校验，页面按钮不能替代接口授权。
-
-真实云模型与登录后完整页面验收、费用/RAG/写工具等扩展统一见 [后续计划](FRONTEND_DEVELOPMENT_PLAN.md)。
 
 ## 上游维护与仓库范围
 
