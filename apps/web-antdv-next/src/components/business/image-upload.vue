@@ -3,6 +3,11 @@ import { ref } from 'vue';
 
 import { Button, Input, message } from 'antdv-next';
 
+import { resolveAvatar } from '#/adapter/business/avatar';
+import {
+  IMAGE_UPLOAD_ACCEPT,
+  validateImageUpload,
+} from '#/adapter/business/image-upload';
 import { uploadImage } from '#/api/business/base';
 const props = defineProps<{
   value?: string;
@@ -20,21 +25,18 @@ async function selected(event: Event) {
   const file = input.files?.[0];
   if (!file || props.disabled || !props.canUpload || uploading.value) return;
   input.value = '';
-  if (
-    !['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type)
-  ) {
-    message.error('请选择 JPG、PNG、GIF 或 WebP 图片');
-    return;
-  }
-  if (file.size > 10 * 1024 * 1024) {
-    message.error('图片不能超过 10 MB');
+  try {
+    validateImageUpload(file);
+  } catch (error) {
+    message.error(error instanceof Error ? error.message : '图片选择失败');
     return;
   }
   uploading.value = true;
   emit('uploadingChange', true);
   try {
-    emit('update:value', (await uploadImage(file)).fileImgUrl);
-    message.success('上传成功，保存用户后头像生效');
+    const result = await uploadImage(file);
+    emit('update:value', result.fileImgUrl);
+    message.success('图片上传成功');
   } finally {
     uploading.value = false;
     emit('uploadingChange', false);
@@ -46,13 +48,13 @@ async function selected(event: Event) {
     <Input
       :value="value"
       :disabled="disabled || uploading"
-      placeholder="头像 URL（可以清空）"
+      placeholder="图片 URL（可以清空）"
       @update:value="emit('update:value', $event)"
     />
     <input
       ref="fileInput"
       type="file"
-      accept="image/jpeg,image/png,image/gif,image/webp"
+      :accept="IMAGE_UPLOAD_ACCEPT"
       hidden
       @change="selected"
     />
@@ -66,7 +68,7 @@ async function selected(event: Event) {
     </Button>
     <img
       v-if="value"
-      :src="value"
+      :src="resolveAvatar(value)"
       alt="图片预览"
       class="h-16 w-16 rounded object-cover"
     />

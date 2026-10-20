@@ -13,6 +13,7 @@ import { Page } from '@vben/common-ui';
 
 import { Alert, Button, message, Modal, Space, Tag } from 'antdv-next';
 
+import { resolveAvatar } from '#/adapter/business/avatar';
 import { formatSessionTime } from '#/adapter/business/device-session';
 import { StaleSessionResponseError } from '#/adapter/business/session';
 import { useVbenForm, z } from '#/adapter/form';
@@ -25,9 +26,11 @@ import {
 } from '#/api/business/app-members';
 
 import { confirmAction, usePermission } from '../system/shared';
+import Avatar from './avatar.vue';
 import { useRequestScope, userStatuses } from './shared';
 
 const can = usePermission('app-members-users');
+const avatar = ref<InstanceType<typeof Avatar>>();
 const open = ref(false);
 const saving = ref(false);
 const error = ref('');
@@ -93,6 +96,12 @@ const [Grid, grid] = useVbenVxeGrid<AppUser>({
   gridOptions: {
     columns: [
       { field: 'id', title: '用户 ID', width: 95 },
+      {
+        field: 'avatarUrl',
+        title: '头像',
+        width: 80,
+        slots: { default: 'avatar' },
+      },
       { field: 'account', title: '邮箱 / 手机号', minWidth: 210 },
       {
         field: 'identityVerified',
@@ -138,7 +147,7 @@ const [Grid, grid] = useVbenVxeGrid<AppUser>({
       },
       {
         title: '操作',
-        width: 300,
+        width: 380,
         fixed: 'right',
         slots: { default: 'actions' },
       },
@@ -366,6 +375,14 @@ function revoke(row: AppSession) {
       title="邮箱验证仅确认归属，账号仍需人工审核；未验证的邮箱或手机号请人工核实"
     />
     <Grid>
+      <template #avatar="{ row }">
+        <img
+          :src="resolveAvatar(row.avatarUrl)"
+          alt="App 用户头像"
+          class="h-9 w-9 rounded object-cover"
+          referrerpolicy="no-referrer"
+        />
+      </template>
       <template #identity="{ row }">
         <Tag
           :color="
@@ -401,6 +418,14 @@ function revoke(row: AppSession) {
       </template>
       <template #actions="{ row }">
         <Space>
+          <Button
+            v-if="can('avatar')"
+            type="link"
+            size="small"
+            @click="avatar?.show(row)"
+          >
+            设置头像
+          </Button>
           <Button
             v-if="can('review') && ['pending', 'rejected'].includes(row.status)"
             type="link"
@@ -450,6 +475,7 @@ function revoke(row: AppSession) {
         </Space>
       </template>
     </Grid>
+    <Avatar ref="avatar" @saved="grid.query()" />
     <Modal
       v-model:open="open"
       :title="`${actionTitle}：${target?.account ?? ''}`"

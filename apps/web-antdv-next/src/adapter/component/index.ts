@@ -72,7 +72,11 @@ import { isEmpty } from '@vben/utils';
 
 import { message, Modal, notification } from 'antdv-next';
 
-import { upload_file } from '#/api';
+import {
+  IMAGE_UPLOAD_ACCEPT,
+  MAX_IMAGE_SIZE,
+} from '#/adapter/business/image-upload';
+import { uploadImage } from '#/api/business/base';
 
 import { createThemeAwareButton } from './theme-aware-button';
 type AdapterUploadProps = UploadProps & {
@@ -738,22 +742,13 @@ async function initComponentAdapter() {
     Rate,
     RichEditor: withDefaultPlaceholder(VbenTiptap, 'input', {
       imageUpload: {
-        upload: (file: any, onProgress: any) => {
-          return new Promise((resolve, reject) => {
-            upload_file({
-              file,
-              onProgress({ percent }) {
-                onProgress?.(percent);
-              },
-              onSuccess(response) {
-                // 从响应中提取图片URL
-                resolve(response?.data?.url ?? response?.url ?? '');
-              },
-              onError() {
-                reject(new Error($t('ui.tiptap.upload.uploadFailed')));
-              },
-            });
-          });
+        accept: IMAGE_UPLOAD_ACCEPT,
+        maxSize: MAX_IMAGE_SIZE,
+        upload: async (file: File, onProgress?: (percent: number) => void) => {
+          onProgress?.(0);
+          const result = await uploadImage(file, 'public');
+          onProgress?.(100);
+          return result.fileImgUrl;
         },
       },
     }),

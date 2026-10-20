@@ -2,6 +2,8 @@ import type { UserInfo } from '@vben/types';
 
 import type { BackendUser, LoginResult } from '../../api/business/session';
 
+import { resolveAvatar } from './avatar';
+
 export const SESSION_HOME = '/_session/home';
 const SESSION_KEY = 'go-zero-admin:session:v1';
 
@@ -78,7 +80,7 @@ export function isAuthenticationError(error: unknown): boolean {
   const response = (
     error as { response?: { data?: { code?: number }; status?: number } }
   )?.response;
-  return response?.status === 401 || response?.data?.code === 100003;
+  return response?.status === 401 || response?.data?.code === 100_003;
 }
 
 export function safeRedirect(value: unknown, fallback: string): string {
@@ -99,7 +101,7 @@ export function safeRedirect(value: unknown, fallback: string): string {
 
 export function mapBackendUser(backend: BackendUser, token: string): UserInfo {
   return {
-    avatar: backend.headerImg || '',
+    avatar: resolveAvatar(backend.headerImg),
     desc: '',
     homePath: SESSION_HOME,
     realName: backend.nickName || backend.userName,

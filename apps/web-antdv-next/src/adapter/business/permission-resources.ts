@@ -98,6 +98,13 @@ export const permissionApiDependencies: Record<string, Policy[]> = {
     { method: 'DELETE', path: '/v1/sys/organization/positions' },
   ],
   'files:delete': [{ method: 'DELETE', path: '/v1/sys/files/resource' }],
+  'businessTools:upload': [
+    { method: 'POST', path: '/v1/sys/base/uploadFileImg' },
+  ],
+  'files:upload': [{ method: 'POST', path: '/v1/sys/base/uploadFileImg' }],
+  'app-members-users:avatar': [
+    { method: 'PUT', path: '/v1/sys/app-members/avatar' },
+  ],
   'files:reference': [
     { method: 'POST', path: '/v1/sys/files/reference' },
     { method: 'DELETE', path: '/v1/sys/files/reference' },

@@ -8,6 +8,7 @@ import {
   grantAppMembership,
   revokeAppGrant,
   revokeAppSession,
+  updateAppUserAvatar,
   updateAppUserStatus,
 } from './app-members';
 
@@ -82,4 +83,15 @@ describe('app administration HTTP contract', () => {
       pinned,
     );
   });
+  it.each(['https://files.example.test/avatar.png', ''])(
+    'pins the avatar-only update and preserves explicit clear: %s',
+    async (avatarUrl) => {
+      await updateAppUserAvatar({ userId: 7, avatarUrl }, 'admin-token');
+      expect(client.put).toHaveBeenCalledExactlyOnceWith(
+        '/v1/sys/app-members/avatar',
+        { userId: 7, avatarUrl },
+        pinned,
+      );
+    },
+  );
 });

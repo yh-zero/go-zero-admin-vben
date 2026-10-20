@@ -10,6 +10,7 @@ export interface AppUser {
   registrationIP: string;
   registrationRegion: string;
   nickname: string;
+  avatarUrl: string;
   status: AppUserStatus;
   reviewReason: string;
   createdAt: string;
@@ -82,6 +83,15 @@ export const updateAppUserStatus = (
 ) =>
   requestClient.put<{ message: string }>(
     '/v1/sys/app-members/status',
+    data,
+    sessionRequestOptions(token),
+  );
+export const updateAppUserAvatar = (
+  data: { userId: number; avatarUrl: string },
+  token: string,
+) =>
+  requestClient.put<{ message: string }>(
+    '/v1/sys/app-members/avatar',
     data,
     sessionRequestOptions(token),
   );

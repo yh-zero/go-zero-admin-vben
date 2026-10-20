@@ -17,7 +17,7 @@ const emit = defineEmits<{ saved: [] }>();
 const open = ref(false);
 const busy = ref(false);
 const file = ref<FileResource>();
-const error = ref('');
+const errorMessage = ref('');
 const [Form, form] = useVbenForm({
   wrapperClass: 'grid-cols-1',
   showDefaultActions: false,
@@ -64,7 +64,7 @@ const [Form, form] = useVbenForm({
 async function show(row: FileResource) {
   if (busy.value) return;
   file.value = row;
-  error.value = '';
+  errorMessage.value = '';
   open.value = true;
   await form.reset();
   await form.setValues({ operation: 'add', objectType: '', objectId: '' });
@@ -72,24 +72,31 @@ async function show(row: FileResource) {
 async function save() {
   if (busy.value || !file.value) return;
   busy.value = true;
-  error.value = '';
+  errorMessage.value = '';
   try {
-    if (!(await form.validate()).valid) return;
+    const validation = await form.validate();
+    if (!validation.valid) return;
     const values = await form.getValues();
+    if (['app_user_avatar', 'sys_user_avatar'].includes(values.objectType)) {
+      errorMessage.value =
+        '系统头像引用由头像资料自动维护，不能在此手工登记或解除';
+      return;
+    }
     const data = {
       fileId: file.value.id,
       objectType: values.objectType,
       objectId: values.objectId,
     };
-    if (values.operation === 'remove') await removeFileReference(data);
-    else await addFileReference(data);
+    await (values.operation === 'remove'
+      ? removeFileReference(data)
+      : addFileReference(data));
     message.success(
       values.operation === 'remove' ? '引用已移除' : '引用已登记',
     );
     open.value = false;
     emit('saved');
-  } catch (failure) {
-    error.value = fileError(failure, '引用更新失败，请核对标识后重试');
+  } catch (error) {
+    errorMessage.value = fileError(error, '引用更新失败，请核对标识后重试');
   } finally {
     busy.value = false;
   }
@@ -112,9 +119,9 @@ defineExpose({ show });
       type="info"
       show-icon
       class="mb-4"
-      message="首版由管理员手动登记，不自动关联业务。请核实对象存在且真实使用文件；移除时须填写相同标识并确认业务已停止使用。"
+      message="后台用户和 App 用户头像引用由系统自动维护，不能在此手工登记或解除。其他业务引用由管理员核实后维护，移除前须确认业务已停止使用。"
     />
     <div :inert="busy"><Form /></div>
-    <Alert v-if="error" type="error" show-icon :message="error" />
+    <Alert v-if="errorMessage" type="error" show-icon :message="errorMessage" />
   </Modal>
 </template>

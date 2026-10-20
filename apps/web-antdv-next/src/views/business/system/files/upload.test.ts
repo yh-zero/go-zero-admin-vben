@@ -23,7 +23,10 @@ vi.mock('antdv-next', async () => {
           h('div', slots.default?.()),
     }),
     Select: defineComponent({
-      props: { value: { type: String, default: '' } },
+      props: {
+        value: { type: String, default: '' },
+        options: { type: Array, default: () => [] },
+      },
       setup: () => () => h('select'),
     }),
     Alert: defineComponent({
@@ -91,16 +94,19 @@ describe('resource upload success and failure states', () => {
     const instance = app.mount(element) as unknown as { show: () => void };
     instance.show();
     await nextTick();
-    const input = element.querySelector<HTMLInputElement>('input[type=file]')!;
+    const input = element.querySelector<HTMLInputElement>('input[type=file]');
+    if (!input) throw new Error('Image file input is missing');
     Object.defineProperty(input, 'files', {
       value: [new File(['image'], 'test.png', { type: 'image/png' })],
       configurable: true,
     });
     input.dispatchEvent(new Event('change'));
     await nextTick();
-    return [...element.querySelectorAll<HTMLButtonElement>('button')].find(
-      (button) => button.textContent === '上传',
-    )!;
+    const button = [
+      ...element.querySelectorAll<HTMLButtonElement>('button'),
+    ].find((button) => button.textContent === '上传');
+    if (!button) throw new Error('Upload button is missing');
+    return button;
   }
   it('keeps an unsuccessful upload retryable without saved events or fake success', async () => {
     mocks.upload
@@ -120,7 +126,7 @@ describe('resource upload success and failure states', () => {
     expect(mocks.success).not.toHaveBeenCalled();
     button.click();
     await flush();
-    expect(mocks.upload.mock.calls[0]![1]).toBe('private');
+    expect(mocks.upload.mock.calls[0]?.[1]).toBe('private');
     expect(mocks.saved).toHaveBeenCalledExactlyOnceWith({
       fileId: 44,
       fileImgUrl: 'https://storage/image.png',
@@ -143,5 +149,13 @@ describe('resource upload success and failure states', () => {
     finish({ fileId: 44, fileImgUrl: 'https://storage/image.png' });
     await flush();
     expect(mocks.saved).toHaveBeenCalledOnce();
+  });
+  it('blocks upload when the current role has no upload permission', async () => {
+    app = createApp(Upload, { allowed: false, onSaved: mocks.saved });
+    const button = await mountAndChoose();
+    button.click();
+    await flush();
+    expect(button.disabled).toBe(true);
+    expect(mocks.upload).not.toHaveBeenCalled();
   });
 });

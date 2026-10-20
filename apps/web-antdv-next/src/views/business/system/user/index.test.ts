@@ -10,6 +10,8 @@ import { StaleSessionResponseError } from '#/adapter/business/session';
 import Users from './index.vue';
 
 const mocks = vi.hoisted(() => ({
+  realForm: false,
+  upload: vi.fn(),
   access: { accessToken: 'old-token' },
   authorities: vi.fn(),
   setValues: vi.fn(),
@@ -32,7 +34,14 @@ const mocks = vi.hoisted(() => ({
       ) => Promise<unknown>
     >(),
   rows: [
-    { ID: 1, userName: 'one', nickName: 'One', authorityId: 88, enable: 1 },
+    {
+      ID: 1,
+      userName: 'one',
+      nickName: 'One',
+      authorityId: 88,
+      enable: 1,
+      headerImg: '/default-avatar.svg',
+    },
     { ID: 2, userName: 'two', nickName: 'Two', authorityId: 88, enable: 1 },
   ],
 }));
@@ -64,7 +73,7 @@ vi.mock('../shared', () => ({
   statusOptions: [],
   confirmAction: mocks.confirm,
 }));
-vi.mock('#/components/business/image-upload.vue', () => ({ default: {} }));
+vi.mock('#/api/business/base', () => ({ uploadImage: mocks.upload }));
 vi.mock('../organization/membership-modal.vue', async () => {
   const { defineComponent, h } = await import('vue');
   return { default: defineComponent({ setup: () => () => h('div') }) };
@@ -82,32 +91,58 @@ vi.mock('@vben/common-ui', async () => {
 });
 vi.mock('#/adapter/form', async () => {
   const { defineComponent, h } = await import('vue');
-  const schema = {
-    trim: () => schema,
-    min: () => schema,
-    max: () => schema,
-    refine: () => schema,
-    optional: () => schema,
-    email: () => schema,
-  };
-  return {
-    z: {
-      string: () => schema,
-      number: () => schema,
-      array: () => schema,
-      union: () => schema,
-      literal: () => schema,
+  const { setupVbenForm } =
+    await import('../../../../../../../packages/@core/ui-kit/form-ui/src/config');
+  const { useVbenForm } =
+    await import('../../../../../../../packages/@core/ui-kit/form-ui/src/use-vben-form');
+  const { z } =
+    await import('../../../../../../../packages/@core/ui-kit/form-ui/src/index');
+  const Input = defineComponent({
+    props: {
+      modelValue: { type: [String, Number, Array], default: undefined },
     },
-    useVbenForm: () => [
-      defineComponent({ setup: () => () => h('div') }),
-      {
-        reset: vi.fn(),
-        updateSchema: vi.fn(),
-        setValues: mocks.setValues,
-        validate: vi.fn().mockResolvedValue({ valid: true }),
-        getValues: mocks.getValues,
-      },
-    ],
+    emits: ['update:modelValue'],
+    setup:
+      (props, { emit }) =>
+      () =>
+        h('input', {
+          value: props.modelValue ?? '',
+          onInput: (event: Event) =>
+            emit('update:modelValue', (event.target as HTMLInputElement).value),
+        }),
+  });
+  return {
+    z,
+    useVbenForm: (options: Parameters<typeof useVbenForm>[0]) => {
+      if (mocks.realForm) {
+        setupVbenForm({
+          rules: {
+            required: (value) => !!value || 'Required',
+            selectRequired: (value) => value !== undefined || 'Required',
+          },
+        });
+        return useVbenForm({
+          ...options,
+          // Keep the actual custom component and form binding; stub only
+          // unrelated built-in inputs normally supplied by the app adapter.
+          schema: options.schema?.map((field) =>
+            typeof field.component === 'string'
+              ? { ...field, component: Input }
+              : field,
+          ),
+        });
+      }
+      return [
+        defineComponent({ setup: () => () => h('div') }),
+        {
+          reset: vi.fn(),
+          updateSchema: vi.fn(),
+          setValues: mocks.setValues,
+          validate: vi.fn().mockResolvedValue({ valid: true }),
+          getValues: mocks.getValues,
+        },
+      ];
+    },
   };
 });
 vi.mock('#/adapter/vxe-table', async () => {
@@ -149,6 +184,19 @@ vi.mock('antdv-next', async () => {
         h('div', slots.default?.()),
   });
   return {
+    Input: defineComponent({
+      props: { value: { type: String, default: '' } },
+      emits: ['update:value'],
+      setup:
+        (props, { attrs, emit }) =>
+        () =>
+          h('input', {
+            ...attrs,
+            value: props.value ?? '',
+            onInput: (event: Event) =>
+              emit('update:value', (event.target as HTMLInputElement).value),
+          }),
+    }),
     Space: panel,
     Tag: panel,
     Button: defineComponent({
@@ -173,6 +221,11 @@ vi.mock('antdv-next', async () => {
     message: { warning: vi.fn(), info: vi.fn(), success: vi.fn() },
   };
 });
+function required<T>(value: null | T | undefined): T {
+  if (value === null || value === undefined)
+    throw new Error('Expected test fixture or rendered element to exist');
+  return value;
+}
 function deferred<T>() {
   let resolve!: (value: T) => void;
   const promise = new Promise<T>((done) => {
@@ -190,6 +243,7 @@ describe('user management request isolation', () => {
   let element: HTMLDivElement;
   beforeEach(() => {
     vi.resetAllMocks();
+    mocks.realForm = false;
     mocks.access.accessToken = 'old-token';
     mocks.authorities.mockResolvedValue([
       { authorityId: 88, authorityName: 'role' },
@@ -231,11 +285,69 @@ describe('user management request isolation', () => {
     await nextTick();
   }
   function click(id: number, text: string) {
-    const row = element.querySelector(`[data-user="${id}"]`)!;
-    [...row.querySelectorAll('button')]
-      .find((button) => button.textContent?.trim() === text)!
-      .click();
+    const row = required(element.querySelector(`[data-user="${id}"]`));
+    required(
+      [...row.querySelectorAll('button')].find(
+        (button) => button.textContent?.trim() === text,
+      ),
+    ).click();
   }
+  it('fills the existing avatar into the real form control and preview', async () => {
+    mocks.realForm = true;
+    await mount();
+    click(1, '编辑');
+    await vi.waitFor(() => {
+      expect(
+        element.querySelector<HTMLInputElement>(
+          'input[placeholder="图片 URL（可以清空）"]',
+        )?.value,
+      ).toBe('/default-avatar.svg');
+      expect(element.querySelector('img')?.getAttribute('src')).toBe(
+        '/default-avatar.svg',
+      );
+    });
+  });
+  it.each(['manual', 'upload', 'clear'])(
+    'saves the avatar %s update emitted through the real form',
+    async (operation) => {
+      mocks.realForm = true;
+      const avatarURL =
+        operation === 'clear' ? '' : 'https://files.example.test/avatar.png';
+      mocks.upload.mockResolvedValue({ fileId: 5, fileImgUrl: avatarURL });
+      await mount();
+      click(1, '编辑');
+      await flush();
+      const input = required(
+        element.querySelector<HTMLInputElement>(
+          'input[placeholder="图片 URL（可以清空）"]',
+        ),
+      );
+      if (operation === 'upload') {
+        const file = required(
+          element.querySelector<HTMLInputElement>('input[type=file]'),
+        );
+        Object.defineProperty(file, 'files', {
+          value: [new File(['avatar'], 'avatar.png', { type: 'image/png' })],
+        });
+        file.dispatchEvent(new Event('change'));
+      } else {
+        input.value = avatarURL;
+        input.dispatchEvent(new Event('input'));
+      }
+      await flush();
+      required(
+        [...element.querySelectorAll('button')].find(
+          (button) => button.textContent === '保存测试',
+        ),
+      ).click();
+      await vi.waitFor(() => {
+        expect(mocks.updateUser).toHaveBeenCalledWith(
+          expect.objectContaining({ ID: 1, headerImg: avatarURL }),
+          'old-token',
+        );
+      });
+    },
+  );
   it('does not replace the latest selected user with a late role-list response', async () => {
     const first = deferred<unknown[]>();
     const second = deferred<unknown[]>();
@@ -264,7 +376,7 @@ describe('user management request isolation', () => {
       expect.any(Function),
       expect.stringContaining('文件 3'),
     );
-    expect(mocks.confirm.mock.calls[0]![2]).toContain('AI 会话 2');
+    expect(required(mocks.confirm.mock.calls[0])[2]).toContain('AI 会话 2');
     expect(mocks.deleteUser).not.toHaveBeenCalled();
   });
   it('does not show a stale resource preview after login changes', async () => {
@@ -288,16 +400,18 @@ describe('user management request isolation', () => {
     await mount();
     click(2, '资源移交');
     await flush();
-    const target = element.querySelector<HTMLInputElement>(
-      'input[aria-label="目标用户ID"]',
-    )!;
+    const target = required(
+      element.querySelector<HTMLInputElement>('input[aria-label="目标用户ID"]'),
+    );
     target.value = '3';
     target.dispatchEvent(new Event('input'));
     await flush();
     mocks.access.accessToken = 'new-token';
-    [...element.querySelectorAll('button')]
-      .find((button) => button.textContent === '保存测试')!
-      .click();
+    required(
+      [...element.querySelectorAll('button')].find(
+        (button) => button.textContent === '保存测试',
+      ),
+    ).click();
     await flush();
     expect(mocks.confirm).not.toHaveBeenCalled();
     expect(mocks.transferResources).not.toHaveBeenCalled();
@@ -306,18 +420,20 @@ describe('user management request isolation', () => {
     await mount();
     click(2, '资源移交');
     await flush();
-    const target = element.querySelector<HTMLInputElement>(
-      'input[aria-label="目标用户ID"]',
-    )!;
+    const target = required(
+      element.querySelector<HTMLInputElement>('input[aria-label="目标用户ID"]'),
+    );
     target.value = '3';
     target.dispatchEvent(new Event('input'));
     await flush();
-    [...element.querySelectorAll('button')]
-      .find((button) => button.textContent === '保存测试')!
-      .click();
+    required(
+      [...element.querySelectorAll('button')].find(
+        (button) => button.textContent === '保存测试',
+      ),
+    ).click();
     await flush();
     expect(mocks.transferResources).not.toHaveBeenCalled();
-    await mocks.confirm.mock.calls[0]![1]();
+    await required(mocks.confirm.mock.calls[0])[1]();
     expect(mocks.transferResources).toHaveBeenCalledWith(
       { userId: 2, targetUserId: 3, includeFiles: true, includeAI: false },
       'old-token',
@@ -328,29 +444,31 @@ describe('user management request isolation', () => {
     await mount();
     click(2, '资源移交');
     await flush();
-    const target = element.querySelector<HTMLInputElement>(
-      'input[aria-label="目标用户ID"]',
-    )!;
+    const target = required(
+      element.querySelector<HTMLInputElement>('input[aria-label="目标用户ID"]'),
+    );
     target.value = '3';
     target.dispatchEvent(new Event('input'));
     await flush();
-    [...element.querySelectorAll('button')]
-      .find((button) => button.textContent === '保存测试')!
-      .click();
+    required(
+      [...element.querySelectorAll('button')].find(
+        (button) => button.textContent === '保存测试',
+      ),
+    ).click();
     await flush();
     mocks.access.accessToken = 'new-token';
-    await mocks.confirm.mock.calls[0]![1]();
+    await required(mocks.confirm.mock.calls[0])[1]();
     expect(mocks.transferResources).not.toHaveBeenCalled();
   });
   it('pins deletion and password reset writes to the confirmed login', async () => {
     await mount();
     click(2, '删除');
     await flush();
-    await mocks.confirm.mock.calls[0]![1]();
+    await required(mocks.confirm.mock.calls[0])[1]();
     expect(mocks.deleteUser).toHaveBeenCalledWith(2, 'old-token');
     mocks.confirm.mockClear();
     click(2, '重置密码');
-    await mocks.confirm.mock.calls[0]![1]();
+    await required(mocks.confirm.mock.calls[0])[1]();
     expect(mocks.resetPassword).toHaveBeenCalledWith(2, 'old-token');
   });
   it('rejects a late user list from a previous login instead of returning it to the grid', async () => {
@@ -384,7 +502,7 @@ describe('user management request isolation', () => {
     mocks.resetPassword.mockReturnValue(write.promise);
     await mount();
     click(1, '重置密码');
-    const saving = mocks.confirm.mock.calls[0]![1]();
+    const saving = required(mocks.confirm.mock.calls[0])[1]();
     mocks.access.accessToken = 'new-token';
     write.resolve(null);
     await saving;
@@ -394,7 +512,7 @@ describe('user management request isolation', () => {
     await mount();
     click(1, '重置密码');
     mocks.access.accessToken = 'new-token';
-    await mocks.confirm.mock.calls[0]![1]();
+    await required(mocks.confirm.mock.calls[0])[1]();
     expect(mocks.resetPassword).not.toHaveBeenCalled();
   });
   it('does not log out a newer login after an old self-role update completes', async () => {
@@ -403,9 +521,11 @@ describe('user management request isolation', () => {
     await mount();
     click(1, '编辑');
     await flush();
-    [...element.querySelectorAll('button')]
-      .find((button) => button.textContent === '保存测试')!
-      .click();
+    required(
+      [...element.querySelectorAll('button')].find(
+        (button) => button.textContent === '保存测试',
+      ),
+    ).click();
     await flush();
     expect(mocks.updateUser).toHaveBeenCalledTimes(1);
     mocks.access.accessToken = 'new-token';

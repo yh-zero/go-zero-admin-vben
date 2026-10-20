@@ -3,16 +3,6 @@ export function fileSize(size: number): string {
   if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
   return `${(size / (1024 * 1024)).toFixed(1)} MB`;
 }
-export function validateUpload(file: File): void {
-  if (
-    !['image/gif', 'image/jpeg', 'image/png', 'image/webp'].includes(file.type)
-  )
-    throw new Error('请选择 JPG、PNG、GIF 或 WebP 图片');
-  if (file.size <= 0 || file.size > 10 * 1024 * 1024)
-    throw new Error('图片不能为空且不能超过 10 MB');
-  if ([...file.name].length > 255 || !file.name.trim())
-    throw new Error('文件名不能为空且不能超过 255 个字符');
-}
 export function safeFileURL(value: string): string {
   const url = new URL(value);
   if (!['http:', 'https:'].includes(url.protocol))
@@ -26,3 +16,4 @@ export function fileError(error: unknown, fallback: string): string {
   if (typeof message === 'string' && message) return message;
   return error instanceof Error && error.message ? error.message : fallback;
 }
+export { validateImageUpload as validateUpload } from '#/adapter/business/image-upload';

@@ -5,43 +5,47 @@ import { ref } from 'vue';
 
 import { Alert, Button, message, Modal, Select, Space } from 'antdv-next';
 
+import { IMAGE_UPLOAD_ACCEPT } from '#/adapter/business/image-upload';
 import { uploadImage } from '#/api/business/base';
 
 import { fileError, fileSize, validateUpload } from './format';
 
+const props = withDefaults(defineProps<{ allowed?: boolean }>(), {
+  allowed: true,
+});
 const emit = defineEmits<{ saved: [file: UploadedImage] }>();
 const open = ref(false);
 const busy = ref(false);
 const input = ref<HTMLInputElement>();
 const selected = ref<File>();
 const visibility = ref<FileVisibility>('private');
-const error = ref('');
+const errorMessage = ref('');
 
 function show() {
   if (busy.value) return;
   selected.value = undefined;
   visibility.value = 'private';
-  error.value = '';
+  errorMessage.value = '';
   open.value = true;
 }
 function selectFile(event: Event) {
   const target = event.target as HTMLInputElement;
   const file = target.files?.[0];
   target.value = '';
-  if (!file || busy.value) return;
+  if (!file || busy.value || !props.allowed) return;
   try {
     validateUpload(file);
     selected.value = file;
-    error.value = '';
-  } catch (failure) {
+    errorMessage.value = '';
+  } catch (error) {
     selected.value = undefined;
-    error.value = fileError(failure, '图片选择失败');
+    errorMessage.value = fileError(error, '图片选择失败');
   }
 }
 async function save() {
-  if (busy.value || !selected.value) return;
+  if (busy.value || !selected.value || !props.allowed) return;
   busy.value = true;
-  error.value = '';
+  errorMessage.value = '';
   try {
     const result = await uploadImage(selected.value, visibility.value);
     if (
@@ -53,8 +57,11 @@ async function save() {
     message.success(`图片已保存，文件 ID：${result.fileId}`);
     open.value = false;
     emit('saved', result);
-  } catch (failure) {
-    error.value = fileError(failure, '上传未完成，请检查文件存储服务后重试');
+  } catch (error) {
+    errorMessage.value = fileError(
+      error,
+      '上传未完成，请检查文件存储服务后重试',
+    );
   } finally {
     busy.value = false;
   }
@@ -70,7 +77,7 @@ defineExpose({ show });
     :mask-closable="false"
     :closable="!busy"
     :confirm-loading="busy"
-    :ok-button-props="{ disabled: !selected }"
+    :ok-button-props="{ disabled: !selected || !allowed }"
     :cancel-button-props="{ disabled: busy }"
     ok-text="上传"
     @ok="save"
@@ -81,7 +88,7 @@ defineExpose({ show });
         <Select
           v-model:value="visibility"
           class="w-full"
-          :disabled="busy"
+          :disabled="busy || !allowed"
           :options="[
             { label: '私有：授权生成短时访问地址', value: 'private' },
             { label: '公开：获得地址的访客均可访问', value: 'public' },
@@ -91,12 +98,14 @@ defineExpose({ show });
       <input
         ref="input"
         type="file"
-        accept="image/jpeg,image/png,image/gif,image/webp"
+        :accept="IMAGE_UPLOAD_ACCEPT"
         hidden
         @change="selectFile"
       />
       <Space direction="vertical">
-        <Button :disabled="busy" @click="input?.click()">选择图片</Button>
+        <Button :disabled="busy || !allowed" @click="input?.click()">
+          选择图片
+        </Button>
         <span v-if="selected" class="break-all">
           {{ selected.name }} · {{ fileSize(selected.size) }}
         </span>
@@ -104,7 +113,18 @@ defineExpose({ show });
       <p class="text-muted-foreground text-sm">
         支持 JPG、PNG、GIF、WebP，最大 10 MB。所有者与部门由服务端登记。
       </p>
-      <Alert v-if="error" type="error" show-icon :message="error" />
+      <Alert
+        v-if="errorMessage"
+        type="error"
+        show-icon
+        :message="errorMessage"
+      />
+      <Alert
+        v-if="!allowed"
+        type="warning"
+        show-icon
+        message="当前角色没有上传权限"
+      />
     </div>
   </Modal>
 </template>

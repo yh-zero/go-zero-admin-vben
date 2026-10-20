@@ -17,6 +17,8 @@ const mocks = vi.hoisted(() => ({
   permissions: [] as string[],
   getAppUsers: vi.fn(),
   updateAppUserStatus: vi.fn(),
+  updateAppUserAvatar: vi.fn(),
+  finishAvatarUpload: undefined as (() => void) | undefined,
   getAppSessions: vi.fn(),
   revokeAppSession: vi.fn(),
   getAppPlans: vi.fn(),
@@ -37,6 +39,50 @@ const mocks = vi.hoisted(() => ({
   sessionRows: [] as Array<Record<string, unknown>>,
 }));
 vi.mock('#/api/business/app-members', () => mocks);
+vi.mock('#/components/business/image-upload.vue', async () => {
+  const { defineComponent, h } = await import('vue');
+  return {
+    default: defineComponent({
+      props: {
+        value: { type: String, default: '' },
+        disabled: Boolean,
+        canUpload: Boolean,
+      },
+      emits: ['update:value', 'uploadingChange'],
+      setup:
+        (props, { emit }) =>
+        () =>
+          h('div', [
+            h('input', {
+              'aria-label': '头像地址',
+              value: props.value,
+              disabled: props.disabled,
+              onInput: (event: Event) =>
+                emit('update:value', (event.target as HTMLInputElement).value),
+            }),
+            props.canUpload
+              ? h(
+                  'button',
+                  {
+                    disabled: props.disabled,
+                    onClick: () => {
+                      emit('uploadingChange', true);
+                      mocks.finishAvatarUpload = () => {
+                        emit(
+                          'update:value',
+                          'https://files.example.test/uploaded.png',
+                        );
+                        emit('uploadingChange', false);
+                      };
+                    },
+                  },
+                  '上传头像',
+                )
+              : null,
+          ]),
+    }),
+  };
+});
 vi.mock('@vben/stores', async () => {
   const { reactive } = await import('vue');
   mocks.access = reactive(mocks.access);
@@ -138,6 +184,7 @@ vi.mock('#/adapter/vxe-table', async () => {
                         );
                       }),
                     slots.identity?.({ row }),
+                    slots.avatar?.({ row }),
                     slots.actions?.({ row }),
                   ]),
                 ),
@@ -168,7 +215,11 @@ vi.mock('antdv-next', async () => {
           h('button', attrs, slots.default?.()),
     }),
     Modal: defineComponent({
-      props: { open: Boolean, title: String, footer: { default: undefined } },
+      props: {
+        open: Boolean,
+        title: { type: String, default: '' },
+        footer: { type: Object, default: undefined },
+      },
       emits: ['ok', 'cancel'],
       setup:
         (props, { slots, emit }) =>
@@ -212,6 +263,8 @@ describe('app account and VIP administration workflows', () => {
       'app-members-users:review',
       'app-members-users:status',
       'app-members-users:revoke-session',
+      'app-members-users:avatar',
+      'businessTools:upload',
       'app-memberships:grant',
       'app-memberships:revoke',
     ];
@@ -222,6 +275,7 @@ describe('app account and VIP administration workflows', () => {
         id: 7,
         account: 'user@example.com',
         nickname: '用户',
+        avatarUrl: 'https://files.example.test/original.png',
         status: 'pending',
         identityKind: 'email',
         identityVerified: false,
@@ -339,6 +393,93 @@ describe('app account and VIP administration workflows', () => {
     mocks.access.accessToken = 'new-token';
     old.resolve({ list: [], total: 0 });
     await expect(pending).rejects.toBeInstanceOf(StaleSessionResponseError);
+  });
+  it('shows App avatars and hides avatar edits without the dedicated permission', async () => {
+    mocks.permissions = [];
+    await mount(Users);
+    expect(
+      element.querySelector('[data-row="7"] img')?.getAttribute('src'),
+    ).toBe('https://files.example.test/original.png');
+    expect(element.textContent).not.toContain('设置头像');
+  });
+  it.each(['https://files.example.test/replacement.png', ''])(
+    'saves only the selected App avatar including an explicit clear: %s',
+    async (avatarUrl) => {
+      await mount(Users);
+      button('设置头像').click();
+      await flush();
+      const input = required(
+        element.querySelector<HTMLInputElement>('[aria-label="头像地址"]'),
+      );
+      input.value = avatarUrl;
+      input.dispatchEvent(new Event('input'));
+      button('确认操作').click();
+      await flush();
+      expect(mocks.updateAppUserAvatar).toHaveBeenCalledExactlyOnceWith(
+        { userId: 7, avatarUrl },
+        'old-token',
+      );
+      expect(mocks.updateAppUserStatus).not.toHaveBeenCalled();
+      expect(mocks.query).toHaveBeenCalledOnce();
+    },
+  );
+  it('blocks saving and closing an App avatar while an image upload is pending', async () => {
+    await mount(Users);
+    button('设置头像').click();
+    await flush();
+    button('上传头像').click();
+    await flush();
+    button('确认操作').click();
+    button('关闭窗口').click();
+    await flush();
+    expect(mocks.updateAppUserAvatar).not.toHaveBeenCalled();
+    expect(element.querySelector('[data-modal]')).not.toBeNull();
+    required(mocks.finishAvatarUpload)();
+    await flush();
+    button('确认操作').click();
+    await flush();
+    expect(mocks.updateAppUserAvatar).toHaveBeenCalledWith(
+      { userId: 7, avatarUrl: 'https://files.example.test/uploaded.png' },
+      'old-token',
+    );
+  });
+  it('keeps a failed avatar replacement retryable and blocks duplicate saves', async () => {
+    await mount(Users);
+    button('设置头像').click();
+    await flush();
+    mocks.updateAppUserAvatar.mockRejectedValueOnce(new Error('storage error'));
+    button('确认操作').click();
+    await flush();
+    expect(element.querySelector('[aria-label="头像地址"]')).not.toBeNull();
+    const pending = deferred<unknown>();
+    mocks.updateAppUserAvatar.mockReturnValueOnce(pending.promise);
+    button('确认操作').click();
+    button('确认操作').click();
+    await flush();
+    expect(mocks.updateAppUserAvatar).toHaveBeenCalledTimes(2);
+    pending.resolve({ message: 'ok' });
+    await flush();
+    expect(mocks.query).toHaveBeenCalledOnce();
+  });
+  it('rejects an avatar save after permission is revoked and ignores completion after changing login', async () => {
+    await mount(Users);
+    button('设置头像').click();
+    await flush();
+    mocks.permissions = [];
+    button('确认操作').click();
+    await flush();
+    expect(mocks.updateAppUserAvatar).not.toHaveBeenCalled();
+    mocks.permissions = ['app-members-users:avatar'];
+    const pending = deferred<unknown>();
+    mocks.updateAppUserAvatar.mockReturnValue(pending.promise);
+    button('确认操作').click();
+    await flush();
+    mocks.access.accessToken = 'new-token';
+    pending.resolve({ message: 'ok' });
+    await flush();
+    expect(mocks.success).not.toHaveBeenCalled();
+    expect(mocks.query).not.toHaveBeenCalled();
+    expect(element.querySelector('[data-modal]')).toBeNull();
   });
   it('requires a rejection reason and keeps failed review input for retry', async () => {
     await mount(Users);

@@ -1,10 +1,15 @@
+import { validateImageUpload } from '#/adapter/business/image-upload';
 import { requestClient } from '#/api/request';
 export type FileVisibility = 'private' | 'public';
 export interface UploadedImage {
   fileId: number;
   fileImgUrl: string;
 }
-export function uploadImage(file: File, visibility: FileVisibility = 'public') {
+export async function uploadImage(
+  file: File,
+  visibility: FileVisibility = 'public',
+) {
+  validateImageUpload(file);
   const data = new FormData();
   data.append('file_img', file);
   data.append('visibility', visibility);

@@ -7,6 +7,12 @@ import {
   missingPermissionApis,
   permissionApiDependencies,
 } from './permission-resources';
+
+function required<T>(value: T | undefined): T {
+  if (value === undefined) throw new Error('API contract match is incomplete');
+  return value;
+}
+
 describe('stable business API dependencies', () => {
   it('declares only routes present in backend API contract sources', () => {
     const directory = resolve(
@@ -21,11 +27,13 @@ describe('stable business API dependencies', () => {
       for (const block of source.matchAll(
         /@server\(([\s\S]*?)\)\s*service\s+[\w-]+\s*\{([\s\S]*?)\n\}/g,
       )) {
-        const prefix = /prefix:\s*(\S+)/.exec(block[1]!)?.[1] ?? '';
-        for (const route of block[2]!.matchAll(
+        const prefix = /prefix:\s*(\S+)/.exec(required(block[1]))?.[1] ?? '';
+        for (const route of required(block[2]).matchAll(
           /\b(get|post|put|delete|patch)\s+(\/[^\s(]+)/g,
         ))
-          registered.add(`${route[1]!.toUpperCase()} ${prefix}${route[2]}`);
+          registered.add(
+            `${required(route[1]).toUpperCase()} ${prefix}${route[2]}`,
+          );
       }
     }
     expect(
@@ -62,5 +70,31 @@ describe('stable business API dependencies', () => {
     );
     expect(missing).toEqual([{ button: '新增', api: 'POST /v1/sys/register' }]);
     expect(policies).toEqual([]);
+  });
+  it('warns about the App avatar save and image upload API permissions separately', () => {
+    const menu = {
+      ID: 1,
+      name: 'app-members-users',
+      parentId: 0,
+      path: 'users',
+      component: '',
+      sort: 0,
+      hidden: false,
+      meta: { title: 'App用户', icon: '' },
+      menuBtn: [
+        {
+          ID: 2,
+          name: 'avatar',
+          desc: '设置头像',
+          permissionKey: 'app-members-users:avatar',
+        },
+      ],
+    };
+    expect(missingPermissionApis([menu], [2], [])).toEqual([
+      { button: '设置头像', api: 'PUT /v1/sys/app-members/avatar' },
+    ]);
+    expect(permissionApiDependencies['businessTools:upload']).toEqual([
+      { method: 'POST', path: '/v1/sys/base/uploadFileImg' },
+    ]);
   });
 });

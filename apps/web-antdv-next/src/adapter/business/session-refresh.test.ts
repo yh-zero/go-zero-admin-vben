@@ -1,7 +1,8 @@
-import { beforeEach, describe, expect, it } from 'vitest';
+import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest';
 
 import {
   isCurrentSessionRequest,
+  mapBackendUser,
   readSession,
   refreshSessionUser,
   saveSession,
@@ -9,6 +10,34 @@ import {
 
 describe('current user response replaces cached display data', () => {
   beforeEach(() => localStorage.clear());
+  afterEach(() => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+  });
+  it('uses the bundled avatar when a user has no avatar URL', () => {
+    const user = { ID: 1, userName: 'admin', authorityId: 1, headerImg: '' };
+    expect(mapBackendUser(user, 'test').avatar).toBe('/default-avatar.svg');
+  });
+  it('resolves the database default avatar marker under the application base', async () => {
+    vi.stubEnv('BASE_URL', '/console/');
+    vi.resetModules();
+    const session = await import('./session');
+    const user = {
+      ID: 1,
+      userName: 'admin',
+      authorityId: 1,
+      headerImg: '/default-avatar.svg',
+    };
+    expect(session.mapBackendUser(user, 'test').avatar).toBe(
+      '/console/default-avatar.svg',
+    );
+    expect(
+      session.mapBackendUser(
+        { ...user, headerImg: 'https://files.example.test/avatar.png' },
+        'test',
+      ).avatar,
+    ).toBe('https://files.example.test/avatar.png');
+  });
   it('refreshes identity and homepage without extending token expiry or storing secrets', () => {
     const expiry = Math.floor(Date.now() / 1000) + 1000;
     saveSession({
@@ -35,7 +64,9 @@ describe('current user response replaces cached display data', () => {
     expect(localStorage.getItem('go-zero-admin:session:v1')).not.toContain(
       'sessionVersion',
     );
-    expect(() => refreshSessionUser(current, 'another-token')).toThrow();
+    expect(() => refreshSessionUser(current, 'another-token')).toThrow(
+      '登录信息已失效，请重新登录',
+    );
   });
 });
 

@@ -123,7 +123,9 @@ const [Form, form] = useVbenForm<CreateUser>({
     {
       fieldName: 'headerImg',
       label: '头像',
+      help: '本系统上传的头像保存后自动关联文件，替换或清空自动解除旧引用。',
       component: markRaw(ImageUpload),
+      modelPropName: 'value',
       componentProps: () => ({
         canUpload: canTools('upload'),
         disabled: saving.value,
@@ -240,7 +242,8 @@ async function save() {
   const token = access.accessToken ?? '';
   const target = editing.value;
   try {
-    if (!(await form.validate()).valid) return;
+    const validation = await form.validate();
+    if (!validation.valid) return;
     const values = await form.getValues();
     if (access.accessToken !== token) return;
     if (!values.authorityIds.includes(values.authorityId)) {
@@ -266,12 +269,12 @@ async function save() {
         token,
       );
       if (access.accessToken !== token) return;
-      const previousRoles = [
-        ...(target.authorities?.map((role) => role.authorityId) ?? [
+      const previousRoles = (
+        target.authorities?.map((role) => role.authorityId) ?? [
           target.authorityId,
-        ]),
-      ].sort();
-      const nextRoles = [...values.authorityIds].sort();
+        ]
+      ).toSorted();
+      const nextRoles = values.authorityIds.toSorted();
       const sessionChanged =
         target.authorityId !== values.authorityId ||
         target.enable !== values.enable ||

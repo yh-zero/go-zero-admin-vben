@@ -108,6 +108,17 @@ describe('file page authorization and delete recovery', () => {
       (entry) => entry.textContent?.trim() === text,
     );
   }
+  function clickButton(text: string) {
+    const entry = button(text);
+    if (!entry) throw new Error(`Button is missing: ${text}`);
+    entry.click();
+  }
+  function confirmDelete() {
+    const callback = mocks.confirm.mock.calls[0]?.[1];
+    if (typeof callback !== 'function')
+      throw new Error('Delete confirmation callback is missing');
+    return callback();
+  }
   it('hides reference administration for nonadministrators even when a button code is granted', async () => {
     app.mount(element);
     await nextTick();
@@ -133,14 +144,21 @@ describe('file page authorization and delete recovery', () => {
     });
     app.mount(element);
     await nextTick();
-    button('删除')!.click();
-    await expect(mocks.confirm.mock.calls[0]![1]()).rejects.toThrow(
-      'storage unavailable',
-    );
+    clickButton('删除');
+    await expect(confirmDelete()).rejects.toThrow('storage unavailable');
     await nextTick();
     expect(mocks.remove).toHaveBeenCalledExactlyOnceWith(7);
     expect(mocks.success).not.toHaveBeenCalled();
     expect(mocks.query).toHaveBeenCalledOnce();
     expect(button('重试删除')?.disabled).toBe(false);
+  });
+  it('does not delete after permission is revoked while confirmation is open', async () => {
+    app.mount(element);
+    await nextTick();
+    clickButton('删除');
+    mocks.permissions = [];
+    await confirmDelete();
+    expect(mocks.remove).not.toHaveBeenCalled();
+    expect(mocks.success).not.toHaveBeenCalled();
   });
 });

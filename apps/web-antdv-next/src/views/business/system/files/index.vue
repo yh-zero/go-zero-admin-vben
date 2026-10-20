@@ -106,11 +106,23 @@ const [Grid, grid] = useVbenVxeGrid<FileResource>({
 });
 
 function remove(row: FileResource) {
-  if (busy.value || row.references > 0 || row.status === 'deleted') return;
+  if (
+    !can('delete') ||
+    busy.value ||
+    row.references > 0 ||
+    row.status === 'deleted'
+  )
+    return;
   confirmAction(
     row.status === 'deleting' ? `重试删除 ${row.name}？` : `删除 ${row.name}？`,
     async () => {
-      if (busy.value) return;
+      if (
+        !can('delete') ||
+        busy.value ||
+        row.references > 0 ||
+        row.status === 'deleted'
+      )
+        return;
       busy.value = row.id;
       try {
         await deleteFile(row.id);
@@ -136,7 +148,7 @@ function remove(row: FileResource) {
       show-icon
       type="info"
       class="mb-4"
-      message="列表按当前角色的数据范围显示，默认隐藏已删除记录。公开文件允许匿名访问；私有文件通过短时授权地址访问。引用需管理员手动登记。"
+      message="列表按当前角色的数据范围显示，默认隐藏已删除记录。公开文件允许匿名访问；私有文件通过短时授权地址访问。后台用户和 App 用户头像引用由系统自动维护，其他业务引用由管理员手动登记。"
     />
     <Grid>
       <template #toolbar-tools>
@@ -202,7 +214,7 @@ function remove(row: FileResource) {
         </Space>
       </template>
     </Grid>
-    <Upload ref="upload" @saved="grid.reload()" />
+    <Upload ref="upload" :allowed="can('upload')" @saved="grid.reload()" />
     <Access ref="access" />
     <Reference ref="reference" @saved="grid.query()" />
   </Page>

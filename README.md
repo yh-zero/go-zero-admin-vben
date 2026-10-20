@@ -109,7 +109,7 @@ API资源同步只预览并选择新增/说明变更，保留已有 ID 和授权
 | `/admin/audit` | getAuditLogList，分页、类型/结果/操作者/模块/时间过滤，RFC3339时间，白名单详情，只读无删除 |
 | `/admin/files` | list/url/resource/reference，归属ID与引用数按真实契约，不虚构引用明细；引用维护仅角色1，有引用不可删，deleting可重试 |
 | 图片上传 | multipart file_img，PNG/JPEG/GIF/WebP至10MB；visibility默认public、可选private，读取fileImgUrl/fileId；浏览器生成boundary |
-| 私有文件 | 每次请求授权地址，签名300秒，不向OSS发送应用JWT；CORS失败提供另存为提示，头像不存临时私有签名 |
+| 私有文件 | 每次请求授权地址，签名300秒，不向RustFS发送应用JWT；CORS失败提供另存为提示，头像不存临时私有签名 |
 | `/admin/sessions` | admin设备接口，仅内置管理员且受API授权保护，按 userId 筛选/撤销 |
 | `/account` 设备列表 | 本人设备/单设备撤销；当前设备撤销只清理本地对应会话，不调用全设备 logout |
 
@@ -119,9 +119,11 @@ API资源同步只预览并选择新增/说明变更，保留已有 ID 和授权
 
 管理页面位于 `src/views/business/app-members/`，请求集中在 `src/api/business/app-members.ts`，由 `adapter/business/pages.ts` 注册，继续使用当前管理员登录和权限。App 用户保存在独立的五张 App 表中，不进入后台 `sys_users` 列表。
 
+后台用户及 App 用户头像保存时由后端自动关联文件资源，替换或清空自动解除旧引用；使用中的文件不能删除，也不能通过手工引用入口解除系统头像引用。上传仍需管理工具的上传权限，App 头像保存需独立头像权限；App 自助资料仍仅修改昵称。
+
 | 页面 | 功能与权限 |
 | --- | --- |
-| `app-members/users`（菜单名 `app-members-users`） | 搜索/筛选 App 用户，审核通过或拒绝、禁用或恢复，查看和撤销设备；按钮码为 `app-members-users:review`、`:status`、`:revoke-session` |
+| `app-members/users`（菜单名 `app-members-users`） | 搜索/筛选 App 用户，审核通过或拒绝、禁用或恢复，查看和撤销设备，设置或清空头像；按钮码为 `app-members-users:review`、`:status`、`:revoke-session`、`:avatar` |
 | `app-members/memberships`（菜单名 `app-memberships`） | 查询会员记录、人工开通或续期、撤销指定授予；按钮码为 `app-memberships:grant`、`:revoke` |
 
 App 通过邮箱或手机号加密码注册后进入待审核状态，审核通过才可登录；VIP 必须另外开通。用户页面展示后端记录的注册 IP 与归属地；归属地由后端 ip2region 离线库查询，容器实际查询已验证，旧账号不补猜历史位置。审核显示邮箱是否经过验证码验证，手机号提示人工核实。邮箱验证码复用后端现有 Mail 模块，同一 IP、同一邮箱每天各最多请求 5 次，按 `Asia/Shanghai` 自然日计数；默认允许不提交验证码，后端设 `APP_EMAIL_VERIFICATION_REQUIRED=true` 后邮箱注册必须验证，账号仍需审核。SMTP 仅由业务 RPC 使用，真实投递需以实际 SMTP 配置验收。
